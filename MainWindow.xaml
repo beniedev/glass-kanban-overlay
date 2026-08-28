@@ -1,0 +1,143 @@
+<Window x:Class="DesktopOverlayBoard.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Glass Kanban"
+        Tag="App.Title"
+        Width="900"
+        Height="560"
+        MinWidth="680"
+        MinHeight="420"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="CanResizeWithGrip"
+        Topmost="True"
+        ShowInTaskbar="True"
+        SizeToContent="Manual">
+    <Border x:Name="RootGlass"
+            Background="Transparent"
+            CornerRadius="18"
+            PreviewMouseLeftButtonDown="RootGlass_PreviewMouseLeftButtonDown">
+        <Border.ContextMenu>
+            <ContextMenu>
+                <MenuItem x:Name="TopmostMenuItem" Header="Always on top" Tag="Action.Topmost" IsCheckable="True" Click="TopmostMenuItem_Click"/>
+                <MenuItem x:Name="NormalMenuItem" Header="Normal window" Tag="Action.NormalWindow" IsCheckable="True" Click="NormalMenuItem_Click"/>
+                <MenuItem x:Name="DesktopMenuItem" Header="Stay on desktop" Tag="Action.DesktopWidget" IsCheckable="True" Click="DesktopMenuItem_Click"/>
+                <Separator/>
+                <MenuItem x:Name="LockMenuItem" Header="Lock position" Tag="Action.LockPosition" IsCheckable="True" Click="LockMenuItem_Click"/>
+                <Separator/>
+                <MenuItem Header="Split to desktop" Tag="Action.SplitToDesktop" Click="OpenAllBoardsButton_Click"/>
+                <MenuItem Header="Configure boards" Tag="Action.ConfigureBoards" Click="SettingsButton_Click"/>
+                <MenuItem Header="Refresh" Tag="Action.Refresh" Click="RefreshButton_Click"/>
+                <MenuItem Header="Open first source file" Tag="Action.OpenFirstSource" Click="OpenDefaultSourceMenuItem_Click"/>
+                <MenuItem Header="Hide to tray" Tag="Action.HideToTray" Click="HideToTrayMenuItem_Click"/>
+            </ContextMenu>
+        </Border.ContextMenu>
+        <Grid>
+            <Border x:Name="TitleChrome"
+                    Visibility="Collapsed"
+                    CornerRadius="18,18,0,0"
+                    Background="Transparent"
+                    BorderThickness="0">
+                <Grid x:Name="TitleBar" Margin="12,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="22" Height="22" CornerRadius="7" Background="#FFE45D" Margin="0,0,9,0">
+                            <TextBlock Text="K" Foreground="#5F4700" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="Glass Kanban" Tag="App.Name" Foreground="{StaticResource PanelInk}" FontSize="14" FontWeight="SemiBold"/>
+                        <Border Margin="10,0,0,0"
+                                Padding="7,2"
+                                CornerRadius="8"
+                                Background="#73FFFFFF"
+                                BorderBrush="#B8FFFFFF"
+                                BorderThickness="1">
+                            <TextBlock x:Name="PinModeText" Text="Pinned" Foreground="{StaticResource PanelMutedInk}" FontSize="11"/>
+                        </Border>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="OpenAllBoardsButton" Content="Split" Tag="Action.SplitToDesktop" Click="OpenAllBoardsButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                        <Button x:Name="SettingsButton" Content="Settings" Tag="Action.Settings" Click="SettingsButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                        <Button x:Name="RefreshButton" Content="Refresh" Tag="Action.Refresh" Click="RefreshButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                        <Button x:Name="CloseButton" Content="x" Click="CloseButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border x:Name="WidgetCard"
+                    Margin="0"
+                    CornerRadius="4"
+                    Background="#B1121724"
+                    Padding="24,22"
+                    BorderBrush="#26FFFFFF"
+                    BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.24" Color="#000000"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Board" Tag="App.Board" Foreground="{StaticResource WidgetInk}" FontSize="28" FontWeight="Bold"/>
+                            <TextBlock Text="Kanban" Foreground="{StaticResource WidgetMutedInk}" FontSize="17" FontWeight="SemiBold" Margin="8,7,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Split all" Tag="Action.SplitAll" Click="OpenAllBoardsButton_Click" Style="{StaticResource ToolButtonStyle}" ToolTip="Turn every configured column into a desktop widget"/>
+                            <Button Content="R" Tag="Action.Refresh" Click="RefreshButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="14" ToolTip="Refresh"/>
+                            <Button Content="S" Tag="Action.Settings" Click="SettingsButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="14" ToolTip="Settings"/>
+                            <Button Content="x" Click="CloseButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16" ToolTip="Minimize to tray"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Grid.Row="1" Margin="0,12,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Opacity" Tag="Label.Opacity" Foreground="{StaticResource WidgetMutedInk}" FontSize="12" VerticalAlignment="Center"/>
+                        <Slider x:Name="OpacitySlider"
+                                Grid.Column="1"
+                                Minimum="0.2"
+                                Maximum="0.95"
+                                ValueChanged="OpacitySlider_ValueChanged"
+                                Margin="10,0"/>
+                        <CheckBox x:Name="LockCheckBox"
+                                  Grid.Column="2"
+                                  Content="Locked"
+                                  Visibility="Collapsed"
+                                  Foreground="{StaticResource WidgetMutedInk}"
+                                  Checked="LockCheckBox_Changed"
+                                  Unchecked="LockCheckBox_Changed"/>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="2"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="GroupsPanel" Orientation="Horizontal"/>
+                    </ScrollViewer>
+
+                    <TextBlock x:Name="StatusText"
+                               Grid.Row="3"
+                               Foreground="{StaticResource WidgetMutedInk}"
+                               FontSize="11"
+                               Margin="0,10,0,0"
+                               Text="Ready"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

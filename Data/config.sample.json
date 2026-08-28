@@ -1,0 +1,32 @@
+{
+  "uiLanguage": "auto",
+  "boards": [
+    {
+      "id": "sample-personal-todo",
+      "displayName": "Personal",
+      "vaultName": "MyVault",
+      "filePath": "C:\\ExampleVaults\\MyVault\\Kanban.md",
+      "defaultColumn": "TODO",
+      "enabled": true,
+      "widgetTitle": "",
+      "widgetNote": "",
+      "widgetTheme": "ink"
+    }
+  ],
+  "summaryWindow": {
+    "left": 80,
+    "top": 80,
+    "width": 900,
+    "height": 560,
+    "opacity": 0.78,
+    "alwaysOnTop": true,
+    "locked": false,
+    "placementMode": "topmost"
+  },
+  "boardWindows": {},
+  "openBoardWindowIds": [],
+  "startup": {
+    "startMinimizedToTray": false,
+    "startWithWindows": false
+  }
+}

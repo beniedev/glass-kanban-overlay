@@ -1,0 +1,15 @@
+bin/
+obj/
+dist/
+Log/
+Data/config.json
+TestResults/
+coverage/
+*.log
+*.tmp
+*.bak
+*.user
+*.suo
+.vs/
+Thumbs.db
+.DS_Store
