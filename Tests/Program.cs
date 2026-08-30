@@ -222,7 +222,7 @@ kanban-plugin: board
 
     var task = service.LoadGroup(board, incompleteOnly: false).Tasks.Single();
     Assert(service.ArchiveTask(task).Success, "archive failed");
-    var after = File.ReadAllText(path);
+    var after = File.ReadAllText(path).ReplaceLineEndings("\n");
     Assert(after.Contains("***\n\n## Archive\n\n- [ ] keep plain markdown ^abc123", StringComparison.Ordinal), "archive should append card to Kanban archive section");
     Assert(after.IndexOf("## TODO", StringComparison.Ordinal) < after.IndexOf("***", StringComparison.Ordinal), "archive section should stay below board lanes");
     Assert(after.IndexOf("***", StringComparison.Ordinal) < after.IndexOf("%% kanban:settings", StringComparison.Ordinal), "archive section should stay before kanban settings");
