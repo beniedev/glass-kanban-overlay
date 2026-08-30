@@ -14,6 +14,28 @@ Glass Kanban Overlay 是一款本地优先的 Windows WPF/.NET 8 应用。你可
 
 汇总窗口会集中显示所选列；点击**分窗到桌面**，可以把同一组看板拆成独立桌面组件。截图数据来自 [`examples/`](examples/) 中可公开使用的 Markdown 看板。
 
+## 真实的人机协作场景
+
+Glass Kanban Overlay 可以把普通 Markdown 作为人与 Agent 共享的工作界面：人在 Windows 看板上操作，获得授权的 Agent 或其他应用更新同一份文件。透明看板本身不运行 Agent、不连接云盘，也不负责执行定时任务。
+
+### 1. 本地 Agent 与 Obsidian 协作
+
+**流程：** 人 ↔ 本地 Agent → Markdown 看板 → Obsidian / Glass Kanban Overlay
+
+本地 Agent 可以直接修改用户明确授权的 `.md` 看板文件。如果文件位于安装了 Kanban 插件的 Obsidian 仓库中，人也可以在 Obsidian 里读写同一块看板。Glass Kanban Overlay 检测到本地文件变化后，会在 Windows 桌面上刷新所选列。
+
+### 2. 云端 AI 通过云盘同步
+
+**流程：** 人 ↔ 云端 AI 应用 → 云盘 → Windows 同步客户端 → 本地 Markdown → Glass Kanban Overlay
+
+具有云盘访问权限的云端 AI 应用可以读取或更新其中的 Markdown 看板。云盘客户端把修改同步到 Windows 后，Glass Kanban Overlay 读取本地副本并刷新看板。云端访问、凭据和文件同步仍由外部 AI 应用与云盘客户端负责。
+
+### 3. 每日计划与周期复盘
+
+**流程：** Agent 定时任务 → 每日更新 TODO → 同步到 Windows 看板 → 每周 / 每月复盘
+
+外部 Agent 定时任务可以通过上述任一流程每天更新 TODO 看板。人在 Windows 上直接看到结果，并通过完成或移动卡片记录进度。之后，Agent 可以读取 Markdown 中的完成状态，根据实际完成情况整理每周和每月复盘。
+
 ## 项目状态
 
 **预发布——等待维护者验收。**

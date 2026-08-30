@@ -14,6 +14,28 @@ It is not an Obsidian plugin. It does not scan the whole vault, use AI, sync to 
 
 The summary window keeps selected columns together. **Split to desktop** opens the same boards as independent widgets. This screenshot uses the public-safe Markdown boards in [`examples/`](examples/).
 
+## Real-world human-agent workflows
+
+Glass Kanban Overlay can act as a shared view over plain Markdown: a person works with the board on Windows, while an authorized agent or another app updates the same file. The overlay itself does not run agents, connect to cloud storage, or schedule jobs.
+
+### 1. Local agent and Obsidian
+
+**Flow:** person ↔ local agent → Markdown board → Obsidian / Glass Kanban Overlay
+
+A local agent can update an explicitly authorized `.md` board directly. If that file is inside an Obsidian vault with the Kanban plugin installed, the person can read and edit the same board in Obsidian. Glass Kanban Overlay detects local file changes and keeps the selected columns visible on the Windows desktop.
+
+### 2. Cloud AI through a synced drive
+
+**Flow:** person ↔ cloud AI app → cloud drive → Windows sync client → local Markdown → Glass Kanban Overlay
+
+A cloud AI app with access to a drive can read or update a Markdown board there. The drive's sync client brings the changed file to Windows, where Glass Kanban Overlay reads the local copy and refreshes the board. Cloud access, credentials, and synchronization remain the responsibility of the external AI app and drive client.
+
+### 3. Daily planning and periodic review
+
+**Flow:** scheduled agent → daily TODO update → synced Windows board → weekly / monthly review
+
+An external agent job can update a TODO board every day through either of the workflows above. The person sees the result on Windows and records progress by completing or moving cards. The agent can later read the Markdown completion state to prepare weekly and monthly reviews based on what was actually finished.
+
 ## Project status
 
 **Pre-release — awaiting maintainer acceptance.**
