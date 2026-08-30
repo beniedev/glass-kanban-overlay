@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using DesktopOverlayBoard.Models;
 using DesktopOverlayBoard.Services;
 using Microsoft.Win32;
@@ -135,15 +136,23 @@ public partial class SettingsWindow : Window
         }
 
         _launchActionStarted = true;
-        switch (_launchAction)
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            case SettingsLaunchAction.NewBoard:
-                StartNewBoardFlow();
-                break;
-            case SettingsLaunchAction.AddExistingBoard:
-                StartAddExistingBoardFlow();
-                break;
-        }
+            if (!IsVisible)
+            {
+                return;
+            }
+
+            switch (_launchAction)
+            {
+                case SettingsLaunchAction.NewBoard:
+                    StartNewBoardFlow();
+                    break;
+                case SettingsLaunchAction.AddExistingBoard:
+                    StartAddExistingBoardFlow();
+                    break;
+            }
+        }), DispatcherPriority.ContextIdle);
     }
 
     private void NewBoardButton_Click(object sender, RoutedEventArgs e)

@@ -1,5 +1,11 @@
 # Worklog
 
+## 2026-08-30 Modal Focus And Summary Configuration Revision
+
+- Deferred auto-launched New/Add flows until the Settings window completes its initial render, preventing a nested modal from competing with its owner during activation.
+- The column/template chooser now explicitly activates and focuses its combo box, with Enter to accept and Escape to cancel.
+- Renamed the summary refresh action to **Refresh boards** and restored **Configure boards** between refresh and split-to-desktop in both summary chrome layouts.
+
 ## 2026-08-30 English And Simplified Chinese Documentation And UI
 
 - Reworked the public README around the user-facing mental model, current interaction labels, Markdown compatibility, safety boundary, pre-release status, and source quick start; added a complete Simplified Chinese counterpart with matching scope and limitations.

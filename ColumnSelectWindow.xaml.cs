@@ -45,6 +45,27 @@ public partial class ColumnSelectWindow : Window
         DialogResult = false;
     }
 
+    private void Window_ContentRendered(object? sender, EventArgs e)
+    {
+        Activate();
+        ColumnsCombo.Focus();
+        Keyboard.Focus(ColumnsCombo);
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            DialogResult = false;
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(SelectedColumn))
+        {
+            DialogResult = true;
+            e.Handled = true;
+        }
+    }
+
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ClickCount == 1)

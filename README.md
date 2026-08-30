@@ -38,8 +38,9 @@ The summary toolbar uses these labels and this order:
 
 1. **New board**
 2. **Add existing**
-3. **Refresh**
-4. **Split to desktop**
+3. **Refresh boards**
+4. **Configure boards**
+5. **Split to desktop**
 
 Each board menu uses:
 

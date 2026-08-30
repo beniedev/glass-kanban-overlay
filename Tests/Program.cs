@@ -546,6 +546,8 @@ static void TestLocalization()
     Assert(LocalizationService.Text("Action.RemoveFromSummary") == "从汇总移除", "zh remove-summary label mismatch");
     Assert(LocalizationService.Text("Action.NewBoard") == "新建看板", "zh new-board label mismatch");
     Assert(LocalizationService.Text("Action.AddExistingBoard") == "添加现有看板", "zh add-existing label mismatch");
+    Assert(LocalizationService.Text("Action.Refresh") == "刷新看板", "zh refresh-boards label mismatch");
+    Assert(LocalizationService.Text("Action.ConfigureBoards") == "配置看板", "zh configure-boards label mismatch");
     Assert(LocalizationService.Text("Action.SplitToDesktop") == "分窗到桌面", "zh split-to-desktop label mismatch");
     Assert(LocalizationService.Text("Action.OpenSource") == "打开原 Markdown 文件", "zh open-source label mismatch");
     Assert(LocalizationService.Text("Action.ConfigureWindow") == "配置窗口", "zh configure-window label mismatch");

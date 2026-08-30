@@ -10,7 +10,9 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Title="Select column"
-        Tag="Dialog.SelectColumnTitle">
+        Tag="Dialog.SelectColumnTitle"
+        ContentRendered="Window_ContentRendered"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <Border CornerRadius="14"
             Background="#EA182230"
             BorderBrush="#46FFFFFF"
