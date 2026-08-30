@@ -66,11 +66,11 @@ This is an agent-assisted portable source build, not an installer or automatic u
 
 ## Project status
 
-**Release candidate — hands-on maintainer testing is complete; final approval to make the repository public is pending.**
+**Public source release — hands-on maintainer testing is complete.**
 
 The source builds cleanly and its service-level regression suite passes. The maintainer has exercised board creation, adding and removing boards, card actions, summary and split widgets, settings, and the current toolbar/menu layout on a real Windows desktop. Neutral UI checks also cover missing-column recovery, external-edit conflicts, single-instance activation, and window recovery.
 
-The GitHub workflow verifies the build and service-level tests. Desktop UI behavior, IME-specific behavior, and different monitor topologies remain environment-dependent manual compatibility checks. No binary release has been published. The repository remains private until the maintainer explicitly approves the visibility change.
+The GitHub workflow verifies the build and service-level tests. Desktop UI behavior, IME-specific behavior, and different monitor topologies remain environment-dependent manual compatibility checks. No binary release has been published; tagged binaries remain a separate release decision.
 
 ## What you can do
 
