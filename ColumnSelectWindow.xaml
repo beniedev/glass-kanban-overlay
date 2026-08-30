@@ -30,7 +30,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Select the default Kanban column" Tag="Dialog.SelectColumnPrompt" Foreground="{StaticResource WidgetInk}" FontWeight="SemiBold" FontSize="15"/>
+                <TextBlock x:Name="PromptText" Text="Select the default Kanban column" Tag="Dialog.SelectColumnPrompt" Foreground="{StaticResource WidgetInk}" FontWeight="SemiBold" FontSize="15"/>
                 <Button Grid.Column="1" Content="x" Click="Cancel_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16" Padding="8,2"/>
             </Grid>
             <ComboBox x:Name="ColumnsCombo"

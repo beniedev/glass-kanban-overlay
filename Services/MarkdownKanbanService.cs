@@ -61,6 +61,110 @@ public sealed partial class MarkdownKanbanService
         return Parse(filePath).Columns.Select(x => x.Title).ToList();
     }
 
+    public KanbanWriteResult CreateBoardFile(string filePath, KanbanBoardTemplate template)
+    {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(filePath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return KanbanWriteResult.Fail(T("Error.InvalidBoardPath"));
+        }
+
+        if (IsBlockedPath(fullPath))
+        {
+            return KanbanWriteResult.Fail(T("Error.BlockedWritePath"));
+        }
+
+        if (!fullPath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            return KanbanWriteResult.Fail(T("Error.InvalidBoardPath"));
+        }
+
+        var directory = Path.GetDirectoryName(fullPath);
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            return KanbanWriteResult.Fail(T("Error.InvalidBoardPath"));
+        }
+
+        var columns = GetTemplateColumns(template);
+        var body = BuildBoardTemplate(columns, Environment.NewLine);
+        using var writeMutex = CreateWriteMutex(fullPath);
+        var lockTaken = false;
+        string? temp = null;
+        try
+        {
+            try
+            {
+                lockTaken = writeMutex.WaitOne(0);
+            }
+            catch (AbandonedMutexException)
+            {
+                lockTaken = true;
+            }
+
+            if (!lockTaken)
+            {
+                return KanbanWriteResult.Fail(T("Error.WriteBusy"));
+            }
+
+            if (File.Exists(fullPath))
+            {
+                return KanbanWriteResult.Fail(T("Error.FileExists"));
+            }
+
+            temp = Path.Combine(directory, $".{Path.GetFileName(fullPath)}.overlay-{Environment.ProcessId}-{Guid.NewGuid():N}.tmp");
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 1024, leaveOpen: true);
+                writer.Write(body);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+
+            try
+            {
+                File.Move(temp, fullPath);
+                temp = null;
+            }
+            catch (IOException) when (File.Exists(fullPath))
+            {
+                return KanbanWriteResult.Fail(T("Error.FileExists"));
+            }
+
+            return KanbanWriteResult.Ok();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(ex, $"Create board failed: {fullPath}");
+            return KanbanWriteResult.Fail(T("Error.WriteFailed", ex.Message));
+        }
+        finally
+        {
+            if (temp is not null && File.Exists(temp))
+            {
+                File.Delete(temp);
+            }
+
+            if (lockTaken)
+            {
+                writeMutex.ReleaseMutex();
+            }
+        }
+    }
+
+    public static IReadOnlyList<string> GetTemplateColumns(KanbanBoardTemplate template)
+    {
+        return template switch
+        {
+            KanbanBoardTemplate.TodoDone => ["TODO", "DONE"],
+            KanbanBoardTemplate.TodoDoingDone => ["TODO", "DOING", "DONE"],
+            _ => throw new ArgumentOutOfRangeException(nameof(template), template, null),
+        };
+    }
+
     public BoardGroup LoadGroup(BoardConfig board, bool incompleteOnly)
     {
         try
@@ -74,6 +178,7 @@ public sealed partial class MarkdownKanbanService
                     Board = board,
                     ColumnTitle = board.DefaultColumn,
                     ColumnRangeHash = "",
+                    SourceHash = document.FullHash,
                     Error = T("Error.ColumnMissing", board.DefaultColumn),
                 };
             }
@@ -87,6 +192,7 @@ public sealed partial class MarkdownKanbanService
                 Board = board,
                 ColumnTitle = column.Title,
                 ColumnRangeHash = column.RangeHash,
+                SourceHash = document.FullHash,
                 Tasks = tasks,
             };
         }
@@ -98,6 +204,7 @@ public sealed partial class MarkdownKanbanService
                 Board = board,
                 ColumnTitle = board.DefaultColumn,
                 ColumnRangeHash = "",
+                SourceHash = "",
                 Error = ex.Message,
             };
         }
@@ -315,6 +422,78 @@ public sealed partial class MarkdownKanbanService
         });
     }
 
+    public KanbanWriteResult CreateMissingColumn(string filePath, string columnTitle, string expectedDocumentHash)
+    {
+        columnTitle = columnTitle.Trim();
+        if (string.IsNullOrWhiteSpace(columnTitle) || ContainsLineBreak(columnTitle))
+        {
+            return KanbanWriteResult.Fail(T("Error.InvalidColumn"));
+        }
+
+        if (string.IsNullOrWhiteSpace(expectedDocumentHash))
+        {
+            return KanbanWriteResult.Fail(T("Error.SourceChanged"));
+        }
+
+        if (IsBlockedPath(filePath))
+        {
+            return KanbanWriteResult.Fail(T("Error.BlockedWritePath"));
+        }
+
+        using var writeMutex = CreateWriteMutex(filePath);
+        var lockTaken = false;
+        try
+        {
+            try
+            {
+                lockTaken = writeMutex.WaitOne(0);
+            }
+            catch (AbandonedMutexException)
+            {
+                lockTaken = true;
+            }
+
+            if (!lockTaken)
+            {
+                return KanbanWriteResult.Fail(T("Error.WriteBusy"));
+            }
+
+            using var source = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.Delete);
+            using var reader = new StreamReader(source, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+            var document = ParseText(filePath, reader.ReadToEnd());
+            if (!string.Equals(document.FullHash, expectedDocumentHash, StringComparison.Ordinal))
+            {
+                return KanbanWriteResult.Fail(T("Error.SourceChanged"));
+            }
+
+            if (FindColumn(document, columnTitle) is not null)
+            {
+                return KanbanWriteResult.Fail(T("Error.ColumnAlreadyExists", columnTitle));
+            }
+
+            var lines = document.Lines.ToList();
+            InsertMissingColumn(lines, columnTitle, document.EndsWithNewLine);
+            SaveLines(filePath, lines, document.NewLine, document.EndsWithNewLine);
+            return KanbanWriteResult.Ok();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(ex, $"Create missing column failed: {filePath}");
+            return KanbanWriteResult.Fail(T("Error.WriteFailed", ex.Message));
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                writeMutex.ReleaseMutex();
+            }
+        }
+    }
+
     public void OpenSource(string filePath)
     {
         if (!File.Exists(filePath))
@@ -450,6 +629,50 @@ public sealed partial class MarkdownKanbanService
                 File.Delete(temp);
             }
         }
+    }
+
+    private static void InsertMissingColumn(List<string> lines, string title, bool endsWithNewLine)
+    {
+        var archive = FindArchiveSection(lines);
+        var settingsStart = FindSettingsStart(lines);
+        var insertAt = archive?.RuleLine ?? (settingsStart >= 0 ? settingsStart : lines.Count);
+        var inserted = new List<string>();
+        if (insertAt > 0 && !string.IsNullOrWhiteSpace(lines[insertAt - 1]))
+        {
+            inserted.Add("");
+        }
+
+        inserted.Add($"## {title}");
+        if (insertAt < lines.Count || endsWithNewLine)
+        {
+            inserted.Add("");
+        }
+
+        lines.InsertRange(insertAt, inserted);
+    }
+
+    private static string BuildBoardTemplate(IReadOnlyList<string> columns, string newLine)
+    {
+        var lines = new List<string>
+        {
+            "---",
+            "kanban-plugin: board",
+            "---",
+            "",
+        };
+
+        foreach (var column in columns)
+        {
+            lines.Add($"## {column}");
+            lines.Add("");
+        }
+
+        lines.Add("%% kanban:settings");
+        lines.Add("```");
+        lines.Add("{\"kanban-plugin\":\"board\"}");
+        lines.Add("```");
+        lines.Add("%%");
+        return string.Join(newLine, lines) + newLine;
     }
 
     private static Mutex CreateWriteMutex(string filePath)
@@ -685,7 +908,18 @@ public sealed partial class MarkdownKanbanService
                 }
             }
 
-            var ruleLine = i > 0 && lines[i - 1].Trim().Equals("***", StringComparison.Ordinal) ? i - 1 : i;
+            var ruleLine = i;
+            var previous = i - 1;
+            while (previous >= 0 && string.IsNullOrWhiteSpace(lines[previous]))
+            {
+                previous--;
+            }
+
+            if (previous >= 0 && lines[previous].Trim().Equals("***", StringComparison.Ordinal))
+            {
+                ruleLine = previous;
+            }
+
             return (ruleLine, i, i + 1, contentEnd);
         }
 

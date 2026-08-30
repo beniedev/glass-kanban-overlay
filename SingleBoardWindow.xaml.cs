@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using DesktopOverlayBoard.Models;
 using DesktopOverlayBoard.Services;
+using Forms = System.Windows.Forms;
 
 namespace DesktopOverlayBoard;
 
@@ -16,15 +17,20 @@ public partial class SingleBoardWindow : Window
     private readonly MarkdownKanbanService _kanban;
     private readonly ConfigService _configService;
     private readonly DispatcherTimer _timer;
+    private readonly PendingRefreshGate _refreshGate = new();
     private readonly Dictionary<string, StackPanel> _taskActions = new();
     private readonly Dictionary<string, TextBox> _taskEditors = new();
     private string _columnHash = "";
+    private string _sourceHash = "";
     private bool _loaded;
     private DateTime _lastWrite;
     private Border? _inlineAddCard;
     private TextBox? _inlineAddTextBox;
+    private TextBox? _activeInlineEditor;
     private bool _isSubmittingInlineAdd;
+    private bool _isSubmittingInlineEdit;
     private bool _suppressInlineAddLostFocus;
+    private bool _closeWithoutSaving;
     private KanbanTask? _dragTask;
     private Point _dragStartPoint;
     private Window? _dragGhost;
@@ -84,9 +90,20 @@ public partial class SingleBoardWindow : Window
 
     private void SingleBoardWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _timer.Stop();
+        if (_closeWithoutSaving)
+        {
+            return;
+        }
+
         SaveLayout();
         _configService.Save(_config);
-        _timer.Stop();
+    }
+
+    public void CloseWithoutSaving()
+    {
+        _closeWithoutSaving = true;
+        Close();
     }
 
     public void RestoreSavedPlacement()
@@ -102,25 +119,35 @@ public partial class SingleBoardWindow : Window
 
     public async Task ReloadAsync()
     {
+        if (_refreshGate.ShouldDefer)
+        {
+            DeferRefresh();
+            return;
+        }
+
         RefreshHeader();
         var group = await Task.Run(() => _kanban.LoadGroup(_board, incompleteOnly: false));
+        if (_refreshGate.ShouldDefer)
+        {
+            DeferRefresh();
+            return;
+        }
+
         _columnHash = group.ColumnRangeHash;
+        _sourceHash = group.SourceHash;
         _taskActions.Clear();
         _taskEditors.Clear();
         _inlineAddCard = null;
         _inlineAddTextBox = null;
+        _activeInlineEditor = null;
         _isSubmittingInlineAdd = false;
+        _isSubmittingInlineEdit = false;
         _suppressInlineAddLostFocus = false;
         TasksPanel.Children.Clear();
 
         if (!string.IsNullOrWhiteSpace(group.Error))
         {
-            TasksPanel.Children.Add(new TextBlock
-            {
-                Text = group.Error,
-                Foreground = (Brush)FindResource("PanelDanger"),
-                TextWrapping = TextWrapping.Wrap,
-            });
+            TasksPanel.Children.Add(CreateGroupErrorPanel(group));
             return;
         }
 
@@ -130,6 +157,81 @@ public partial class SingleBoardWindow : Window
         }
 
         StatusText.Text = T("Status.RefreshedAt", DateTime.Now);
+    }
+
+    private UIElement CreateGroupErrorPanel(BoardGroup group)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock
+        {
+            Text = group.Error,
+            Foreground = (Brush)FindResource("PanelDanger"),
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        if (!IsMissingColumnGroup(group))
+        {
+            return panel;
+        }
+
+        var actions = new WrapPanel { Margin = new Thickness(-4, 8, 0, 0) };
+        actions.Children.Add(MiniButton(T("Action.ReselectColumn"), async (_, _) =>
+            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Reselect)));
+        actions.Children.Add(MiniButton(T("Action.CreateMissingColumn"), async (_, _) =>
+            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Create)));
+        actions.Children.Add(MiniButton(T("Action.OpenSource"), async (_, _) =>
+            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.OpenSource)));
+        actions.Children.Add(MiniButton(T("Action.RemoveFromSummary"), async (_, _) =>
+            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Remove)));
+        panel.Children.Add(actions);
+        return panel;
+    }
+
+    private bool IsMissingColumnGroup(BoardGroup group)
+    {
+        return File.Exists(group.Board.FilePath) &&
+               !string.IsNullOrWhiteSpace(group.SourceHash) &&
+               string.IsNullOrWhiteSpace(group.ColumnRangeHash);
+    }
+
+    private async Task RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction action)
+    {
+        var main = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
+        if (main is null)
+        {
+            if (action == MainWindow.MissingColumnRecoveryAction.OpenSource)
+            {
+                _kanban.OpenSource(_board.FilePath);
+            }
+
+            return;
+        }
+
+        var group = new BoardGroup
+        {
+            Board = _board,
+            ColumnTitle = _board.DefaultColumn,
+            ColumnRangeHash = "",
+            SourceHash = _sourceHash,
+            Error = T("Error.ColumnMissing", _board.DefaultColumn),
+        };
+        await main.RecoverMissingColumnAsync(group, this, action);
+    }
+
+    private void DeferRefresh()
+    {
+        _refreshGate.Defer();
+        StatusText.Text = T("Error.SourceChanged");
+    }
+
+    private async Task RefreshAfterDraftAsync()
+    {
+        if (_refreshGate.ShouldDefer || !_refreshGate.TryConsumeReady())
+        {
+            return;
+        }
+
+        await ReloadAsync();
     }
 
     private UIElement CreateTaskRow(KanbanTask task)
@@ -186,11 +288,12 @@ public partial class SingleBoardWindow : Window
             {
                 textBox.Text = task.Text;
                 EndInlineEdit(textBox);
+                await RefreshAfterDraftAsync();
             }
         };
         textBox.LostKeyboardFocus += async (_, _) =>
         {
-            if (!textBox.IsReadOnly && !TextInputService.IsImeComposing(textBox))
+            if (!_isSubmittingInlineEdit && !textBox.IsReadOnly && !TextInputService.IsImeComposing(textBox))
             {
                 await CommitInlineEditAsync(task, textBox);
             }
@@ -324,7 +427,7 @@ public partial class SingleBoardWindow : Window
             else if (e.Key == Key.Escape)
             {
                 e.Handled = true;
-                CancelInlineAdd();
+                await CancelInlineAddAsync();
             }
         };
         textBox.LostKeyboardFocus += async (_, _) =>
@@ -359,10 +462,10 @@ public partial class SingleBoardWindow : Window
         saveButton.PreviewMouseLeftButtonDown += (_, _) => _suppressInlineAddLostFocus = true;
         actions.Children.Add(saveButton);
 
-        var cancelButton = MiniButton("x", (_, _) =>
+        var cancelButton = MiniButton("x", async (_, _) =>
         {
             _suppressInlineAddLostFocus = false;
-            CancelInlineAdd();
+            await CancelInlineAddAsync();
         }, T("Action.Cancel"));
         cancelButton.PreviewMouseLeftButtonDown += (_, _) => _suppressInlineAddLostFocus = true;
         actions.Children.Add(cancelButton);
@@ -393,7 +496,7 @@ public partial class SingleBoardWindow : Window
         var text = textBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(text))
         {
-            CancelInlineAdd();
+            await CancelInlineAddAsync();
             return;
         }
 
@@ -403,13 +506,17 @@ public partial class SingleBoardWindow : Window
             var result = _kanban.AddTask(_board, _board.DefaultColumn, _columnHash, text);
             if (!result.Success)
             {
+                _refreshGate.MarkPending();
                 GlassConfirmWindow.ShowNotice(this, T("Dialog.UpdateFailed"), result.Error ?? T("Dialog.UpdateFailed"));
+                _suppressInlineAddLostFocus = false;
                 textBox.Focus();
                 textBox.SelectAll();
                 return;
             }
 
             RemoveInlineAddCard();
+            _refreshGate.EndDraft();
+            _refreshGate.Clear();
             await ReloadAsync();
         }
         finally
@@ -430,11 +537,13 @@ public partial class SingleBoardWindow : Window
         _suppressInlineAddLostFocus = false;
     }
 
-    private void CancelInlineAdd()
+    private async Task CancelInlineAddAsync()
     {
         RemoveInlineAddCard();
         _isSubmittingInlineAdd = false;
         Keyboard.ClearFocus();
+        _refreshGate.EndDraft();
+        await RefreshAfterDraftAsync();
     }
 
     private System.Windows.Controls.Button MiniButton(string label, RoutedEventHandler onClick, string? tooltip = null)
@@ -505,6 +614,18 @@ public partial class SingleBoardWindow : Window
 
     private void BeginInlineEdit(TextBox textBox)
     {
+        if (_refreshGate.HasActiveDraft)
+        {
+            if (_activeInlineEditor == textBox)
+            {
+                textBox.Focus();
+            }
+
+            return;
+        }
+
+        _refreshGate.BeginDraft();
+        _activeInlineEditor = textBox;
         textBox.IsReadOnly = false;
         textBox.Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
         textBox.CaretBrush = Brushes.White;
@@ -526,19 +647,31 @@ public partial class SingleBoardWindow : Window
         }
     }
 
-    private static void EndInlineEdit(TextBox textBox)
+    private void EndInlineEdit(TextBox textBox)
     {
         textBox.IsReadOnly = true;
         textBox.Background = Brushes.Transparent;
+        if (_activeInlineEditor == textBox)
+        {
+            _activeInlineEditor = null;
+            _refreshGate.EndDraft();
+        }
+
         Keyboard.ClearFocus();
     }
 
     private async Task CommitInlineEditAsync(KanbanTask task, TextBox textBox)
     {
+        if (_isSubmittingInlineEdit || _activeInlineEditor != textBox)
+        {
+            return;
+        }
+
         var text = textBox.Text.Trim();
         if (string.Equals(text, task.Text, StringComparison.Ordinal))
         {
             EndInlineEdit(textBox);
+            await RefreshAfterDraftAsync();
             return;
         }
 
@@ -546,11 +679,31 @@ public partial class SingleBoardWindow : Window
         {
             textBox.Text = task.Text;
             EndInlineEdit(textBox);
+            await RefreshAfterDraftAsync();
             return;
         }
 
-        EndInlineEdit(textBox);
-        await ApplyWriteAsync(() => _kanban.RenameTask(task, text));
+        _isSubmittingInlineEdit = true;
+        try
+        {
+            var result = _kanban.RenameTask(task, text);
+            if (!result.Success)
+            {
+                _refreshGate.MarkPending();
+                GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"), result.Error ?? T("Dialog.WriteFailed"));
+                textBox.Focus();
+                textBox.SelectAll();
+                return;
+            }
+
+            EndInlineEdit(textBox);
+            _refreshGate.Clear();
+            await ReloadAsync();
+        }
+        finally
+        {
+            _isSubmittingInlineEdit = false;
+        }
     }
 
     private void ShowTaskActions(string taskId)
@@ -571,6 +724,19 @@ public partial class SingleBoardWindow : Window
 
     private async void AddButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_refreshGate.HasActiveDraft)
+        {
+            _activeInlineEditor?.Focus();
+            _inlineAddTextBox?.Focus();
+            return;
+        }
+
+        if (_activeInlineEditor is not null)
+        {
+            _activeInlineEditor.Focus();
+            return;
+        }
+
         if (_inlineAddCard is not null)
         {
             _inlineAddTextBox?.Focus();
@@ -578,6 +744,7 @@ public partial class SingleBoardWindow : Window
         }
 
         var addCard = CreateInlineAddTaskCard();
+        _refreshGate.BeginDraft();
         TasksPanel.Children.Add(addCard);
         TasksScrollViewer?.ScrollToEnd();
         await Dispatcher.InvokeAsync(() =>
@@ -629,10 +796,22 @@ public partial class SingleBoardWindow : Window
             _config.BoardWindows[_board.Id] = layout;
         }
 
-        Left = layout.Left;
-        Top = layout.Top;
-        Width = layout.Width;
-        Height = layout.Height;
+        var workingAreas = Forms.Screen.AllScreens.Select(screen => new Rect(
+            screen.WorkingArea.Left,
+            screen.WorkingArea.Top,
+            screen.WorkingArea.Width,
+            screen.WorkingArea.Height));
+        var clamped = WindowPlacementService.ClampToVisibleWorkingArea(
+            new Rect(layout.Left, layout.Top, layout.Width, layout.Height),
+            workingAreas);
+        layout.Left = clamped.Left;
+        layout.Top = clamped.Top;
+        layout.Width = clamped.Width;
+        layout.Height = clamped.Height;
+        Left = clamped.Left;
+        Top = clamped.Top;
+        Width = clamped.Width;
+        Height = clamped.Height;
         Opacity = 1;
         var glass = ClampGlassOpacity(layout.Opacity);
         ApplyGlassOpacity(glass);

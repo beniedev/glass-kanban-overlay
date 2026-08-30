@@ -1,5 +1,26 @@
 # Worklog
 
+## 2026-08-30 GKO-PUBLIC-001 Public-Candidate Integration, Review And RC Evidence
+
+- Added the first public-candidate interaction paths: two new-board templates (`TODO / DONE` and `TODO / DOING / DONE`), add-existing-board flow, remove-from-summary cleanup, and four missing-column recovery actions.
+- Added service-level coverage for template parsing, refusing to overwrite an existing file, preserving Markdown while creating a missing column, refusing source-hash conflicts, configuration cleanup, working-area rectangle clamping, and the single-instance activation signal.
+- Sol's review found that closing a removed split window could write its old layout back into the new config; the close-without-saving path now prevents that stale write.
+- Centralized multi-screen reachability and placement recovery in `WindowPlacementService`; summary and split windows use the shared 48x48 usable-intersection rule, with automated coverage for valid multi-screen and 1px-sliver cases.
+- Replaced ad hoc pending-refresh flags with `PendingRefreshGate`, so draft refresh deferral and post-submit/cancel consumption share one explicit state contract.
+- Clarified the missing-column recovery actions and labels, including selecting another column, creating the missing heading after confirmation, opening the source, and removing the view.
+- Added draft guards to the summary and split windows so an external source change is deferred while a card is being entered or edited; existing line and column conflict checks remain the write boundary.
+- Added the native single-instance startup guard and checked Win32 placement-call failures.
+- Hardened the portable-release script to refuse existing output targets and to reject local config/log content; added a Windows CI workflow that runs build and service-level tests only.
+
+Validation:
+
+- `dotnet build .\DesktopOverlayBoard.sln` passed with 0 warnings and 0 errors on the current working tree.
+- `dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj` passed: `DesktopOverlayBoard.Tests: all tests passed`.
+- `scripts\New-PortableRelease.ps1` completed successfully. The portable directory and zip contain only `GlassKanbanOverlay.exe`, `LICENSE`, `NOTICE.md`, and `README.md`; no `Data`, `Log`, or PDB files are present. The zip SHA-256 is `A15C1195E7714AB4F99919E71DE2FD63A959666C80C5A4A2D42420BDA14F73F3`.
+- Neutral-home UI automation verified: a second launch exited 0, the first instance restored from minimized state, and only one RC process remained; both new-board templates, add-existing, card add, draft preservation during external refresh, fail-closed conflicts, all four missing-column paths, and summary/Settings removal were exercised. Removal left source files unchanged and cleared window/open/layout state. A simulated `(50000, 50000)` placement returned both summary and split windows to a visible area.
+- Neutral screenshots were generated under ignored `TestResults` output and are not commit candidates.
+- Maintainer still needs to run the RC personally and verify real Chinese IME candidate selection, real multi-monitor topology changes, and the final privacy/identity/reachable-history gate. This entry does not claim public release, completion, or maintainer acceptance.
+
 ## 2026-07-21 Split-Window IME And Atomic Write Safety
 
 - Preserved the existing split-window interaction: double-click and **Edit card** continue editing directly inside the task card.

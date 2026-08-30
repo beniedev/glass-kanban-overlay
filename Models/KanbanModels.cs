@@ -8,6 +8,40 @@ public sealed record KanbanDocument(
     IReadOnlyList<string> Lines,
     IReadOnlyList<KanbanColumn> Columns);
 
+public enum KanbanBoardTemplate
+{
+    TodoDone,
+    TodoDoingDone,
+}
+
+public sealed class PendingRefreshGate
+{
+    public bool HasActiveDraft { get; private set; }
+    public bool HasPendingRefresh { get; private set; }
+    public bool ShouldDefer => HasActiveDraft;
+
+    public void BeginDraft() => HasActiveDraft = true;
+
+    public void EndDraft() => HasActiveDraft = false;
+
+    public void Defer() => MarkPending();
+
+    public void MarkPending() => HasPendingRefresh = true;
+
+    public void Clear() => HasPendingRefresh = false;
+
+    public bool TryConsumeReady()
+    {
+        if (HasActiveDraft || !HasPendingRefresh)
+        {
+            return false;
+        }
+
+        HasPendingRefresh = false;
+        return true;
+    }
+}
+
 public sealed record KanbanColumn(
     string Title,
     int HeadingLineIndex,
@@ -33,6 +67,7 @@ public sealed class BoardGroup
     public required BoardConfig Board { get; init; }
     public required string ColumnTitle { get; init; }
     public required string ColumnRangeHash { get; init; }
+    public string SourceHash { get; init; } = "";
     public List<KanbanTask> Tasks { get; init; } = new();
     public string? Error { get; init; }
 }

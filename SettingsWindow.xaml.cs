@@ -111,7 +111,74 @@ public partial class SettingsWindow : Window
         _config.Startup.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
     }
 
-    private void AddButton_Click(object sender, RoutedEventArgs e)
+    private void NewBoardButton_Click(object sender, RoutedEventArgs e)
+    {
+        var templateOptions = new[] { "TODO / DONE", "TODO / DOING / DONE" };
+        var templateSelect = new ColumnSelectWindow(
+            templateOptions,
+            titleKey: "Dialog.NewBoard",
+            promptKey: "Message.ChooseBoardTemplate")
+        {
+            Owner = this,
+        };
+
+        if (templateSelect.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var template = templateSelect.SelectedColumn == templateOptions[1]
+            ? KanbanBoardTemplate.TodoDoingDone
+            : KanbanBoardTemplate.TodoDone;
+        var dialog = new SaveFileDialog
+        {
+            Filter = "Markdown files (*.md)|*.md",
+            DefaultExt = ".md",
+            AddExtension = true,
+            Title = T("FileDialog.CreateBoard"),
+            CheckPathExists = true,
+            OverwritePrompt = false,
+            FileName = "Kanban.md",
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var path = dialog.FileName;
+        if (_config.Boards.Any(x => string.Equals(x.FilePath, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            GlassConfirmWindow.ShowNotice(this, T("Dialog.AlreadyAdded"), T("Message.AlreadyAdded"));
+            return;
+        }
+
+        var result = _kanban.CreateBoardFile(path, template);
+        if (!result.Success)
+        {
+            GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"), result.Error ?? T("Dialog.WriteFailed"));
+            return;
+        }
+
+        var columns = MarkdownKanbanService.GetTemplateColumns(template);
+        var board = new BoardConfig
+        {
+            DisplayName = Path.GetFileNameWithoutExtension(path),
+            VaultName = GuessVaultName(path),
+            FilePath = path,
+            DefaultColumn = columns[0],
+            Enabled = true,
+        };
+        _config.Boards.Add(board);
+        BoardsList.Items.Refresh();
+        BoardsList.SelectedItem = board;
+        ApplySelectedBoard();
+        ApplyStartupOptions();
+        StartupService.ApplyStartWithWindows(_config.Startup.StartWithWindows);
+        DialogResult = true;
+    }
+
+    private void AddExistingButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {

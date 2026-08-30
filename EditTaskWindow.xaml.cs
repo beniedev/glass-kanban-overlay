@@ -19,6 +19,7 @@ public partial class EditTaskWindow : Window
         TitleText.Text = title;
         TaskTextBox.Text = text;
         TextInputService.EnableIme(TaskTextBox);
+        TaskTextBox.KeyDown += TaskTextBox_KeyDown;
         ContentRendered += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
         {
             Activate();
@@ -26,6 +27,15 @@ public partial class EditTaskWindow : Window
             Keyboard.Focus(TaskTextBox);
             TaskTextBox.SelectAll();
         }), DispatcherPriority.Input);
+    }
+
+    private void TaskTextBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && !TextInputService.IsImeComposing(TaskTextBox))
+        {
+            e.Handled = true;
+            Ok_Click(sender, new RoutedEventArgs());
+        }
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)

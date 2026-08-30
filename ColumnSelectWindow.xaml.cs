@@ -8,9 +8,19 @@ public partial class ColumnSelectWindow : Window
 {
     public string SelectedColumn => ColumnsCombo.SelectedItem?.ToString() ?? "";
 
-    public ColumnSelectWindow(IReadOnlyList<string> columns)
+    public ColumnSelectWindow(IReadOnlyList<string> columns, string? titleKey = null, string? promptKey = null)
     {
         InitializeComponent();
+        if (!string.IsNullOrWhiteSpace(titleKey))
+        {
+            Tag = titleKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(promptKey))
+        {
+            PromptText.Tag = promptKey;
+        }
+
         LocalizationService.ApplyTo(this);
         ColumnsCombo.ItemsSource = columns;
         if (columns.Count > 0)

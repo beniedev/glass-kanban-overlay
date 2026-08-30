@@ -150,7 +150,8 @@
 
                 <DockPanel Grid.Column="0">
                     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Content="Add" Tag="Action.Add" Style="{StaticResource SettingsButtonStyle}" Margin="0,0,8,0" Click="AddButton_Click"/>
+                        <Button Content="New board" Tag="Action.NewBoard" Style="{StaticResource SettingsButtonStyle}" Margin="0,0,8,0" Click="NewBoardButton_Click"/>
+                        <Button Content="Add existing" Tag="Action.AddExistingBoard" Style="{StaticResource SettingsButtonStyle}" Margin="0,0,8,0" Click="AddExistingButton_Click"/>
                         <Button Content="Remove" Tag="Action.Remove" Style="{StaticResource SettingsButtonStyle}" Click="RemoveButton_Click"/>
                     </StackPanel>
                     <ListBox x:Name="BoardsList" DisplayMemberPath="DisplayName" SelectionChanged="BoardsList_SelectionChanged"/>
