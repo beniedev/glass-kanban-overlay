@@ -4,11 +4,15 @@
 
 把选定的 Obsidian Kanban 列作为透明组件常驻在 Windows 桌面上。
 
-![透明看板预览](docs/assets/glass-kanban-overlay-preview.png)
-
 Glass Kanban Overlay 是一款本地优先的 Windows WPF/.NET 8 应用。你可以明确选择要显示的 Markdown 看板文件和 `##` 列，然后在汇总窗口中查看这些列，或把它们分别放到桌面上。
 
 它不是 Obsidian 插件，不会扫描整个仓库，不使用 AI，不进行云同步，也不发送遥测数据。
+
+## 使用示例
+
+![透明看板汇总窗口与桌面分窗](docs/assets/glass-kanban-overlay-preview.png)
+
+汇总窗口会集中显示所选列；点击**分窗到桌面**，可以把同一组看板拆成独立桌面组件。截图数据来自 [`examples/`](examples/) 中可公开使用的 Markdown 看板。
 
 ## 项目状态
 

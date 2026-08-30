@@ -4,11 +4,15 @@ English | [简体中文](README.zh-CN.md)
 
 Keep selected Obsidian Kanban columns visible as transparent Windows desktop widgets.
 
-![Glass Kanban Overlay preview](docs/assets/glass-kanban-overlay-preview.png)
-
 Glass Kanban Overlay is a local-first WPF/.NET 8 app for Windows. You choose the Markdown board files and `##` columns you want to see; the app shows only those columns in a summary window or as separate desktop widgets.
 
 It is not an Obsidian plugin. It does not scan the whole vault, use AI, sync to a cloud service, or send telemetry.
+
+## Usage example
+
+![Glass Kanban Overlay summary window and desktop widgets](docs/assets/glass-kanban-overlay-preview.png)
+
+The summary window keeps selected columns together. **Split to desktop** opens the same boards as independent widgets. This screenshot uses the public-safe Markdown boards in [`examples/`](examples/).
 
 ## Project status
 
