@@ -94,11 +94,12 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <WrapPanel VerticalAlignment="Center">
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
                             <TextBlock x:Name="MainTitleText"
                                        Foreground="{StaticResource WidgetInk}"
                                        FontSize="30"
                                        FontWeight="Bold"
+                                       TextWrapping="Wrap"
                                        Cursor="Hand"
                                        MouseLeftButtonDown="MainTitleText_MouseLeftButtonDown"
                                        ToolTip="Double-click to edit title"/>
@@ -106,11 +107,12 @@
                                        Foreground="{StaticResource WidgetMutedInk}"
                                        FontSize="18"
                                        FontWeight="SemiBold"
-                                       Margin="8,8,0,0"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"
                                        Cursor="Hand"
                                        MouseLeftButtonDown="ColumnText_MouseLeftButtonDown"
                                        ToolTip="Double-click to edit note"/>
-                        </WrapPanel>
+                        </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                             <Button x:Name="LockButton" Click="LockButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="13"/>
                             <Button Content="..." Click="ColumnMenuButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16" ToolTip="Column menu">

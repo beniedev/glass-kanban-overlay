@@ -379,6 +379,8 @@ public partial class MainWindow : Window
             Foreground = (Brush)FindResource("WidgetInk"),
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
         });
 
