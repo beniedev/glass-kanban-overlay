@@ -42,35 +42,29 @@ Send this one message to a trusted local coding agent on the Windows PC:
 
 > Install Glass Kanban Overlay from https://github.com/beniedev/glass-kanban-overlay, launch it, and teach me the basic workflow. Follow the installing-agent instructions in the README.
 
-This is an agent-assisted portable source build, not an installer or automatic updater.
+The release archive is self-contained for Windows x64. It does not require the .NET SDK, an installer, or an automatic updater.
 
 <details>
 <summary>Instructions for the installing agent</summary>
 
-1. Confirm that the computer is Windows x64. Verify that the repository owner and Git remote are `beniedev`; stop if the source came from somewhere else.
-2. Use `%LOCALAPPDATA%\Programs\GlassKanbanOverlay` as the default install folder unless the user gives another location.
-3. If that folder already exists, do not merge or overwrite it. Preserve `Data\config.json` and ask the user before performing an upgrade.
-4. Check for the .NET 8 SDK. If it is missing, explain why it is required and ask before installing it from an official Microsoft source.
-5. Clone the repository into a working folder and run:
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
-   ```
-
-6. Copy the newly created `dist\GlassKanbanOverlay-win-x64-portable` directory to the install folder. Do not copy repository `Data` or `Log` content.
-7. Create a desktop shortcut to `GlassKanbanOverlay.exe`, set its working directory to the install folder, and launch it once.
-8. Do not scan a vault or add any Markdown file during installation. Ask the user to choose each board file explicitly.
-9. After launch, explain how to create a board, add an existing `.md` board, select a column, split it to the desktop, open the source file, and find `Data\config.json` for local configuration.
+1. Confirm that the computer is Windows x64. Verify that the repository owner is `beniedev`; stop if the download came from somewhere else.
+2. Open the [latest GitHub Release](https://github.com/beniedev/glass-kanban-overlay/releases/latest) and download `GlassKanbanOverlay-win-x64-portable.zip` from **Assets**. Do not substitute the automatically generated source archives.
+3. Use `%LOCALAPPDATA%\Programs\GlassKanbanOverlay` as the default install folder unless the user gives another location.
+4. If that folder already exists, do not merge or overwrite it. Preserve `Data\config.json` and ask the user before performing an upgrade.
+5. Extract the portable zip into a new folder, move that folder to the install location, and confirm it contains `GlassKanbanOverlay.exe`, `LICENSE`, `NOTICE.md`, and both README files. Stop if the archive contains `Data\config.json` or `Log\`.
+6. Create a desktop shortcut to `GlassKanbanOverlay.exe`, set its working directory to the install folder, and launch it once. Windows may show a SmartScreen warning because this release is not code-signed.
+7. Do not scan a vault or add any Markdown file during installation. Ask the user to choose each board file explicitly.
+8. After launch, explain how to create a board, add an existing `.md` board, select a column, split it to the desktop, open the source file, and find `Data\config.json` for local configuration.
 
 </details>
 
 ## Project status
 
-**Public source release — hands-on maintainer testing is complete.**
+**v0.2.0 — first public Windows x64 portable release.**
 
 The source builds cleanly and its service-level regression suite passes. The maintainer has exercised board creation, adding and removing boards, card actions, summary and split widgets, settings, and the current toolbar/menu layout on a real Windows desktop. Neutral UI checks also cover missing-column recovery, external-edit conflicts, single-instance activation, and window recovery.
 
-The GitHub workflow verifies the build and service-level tests. Desktop UI behavior, IME-specific behavior, and different monitor topologies remain environment-dependent manual compatibility checks. No binary release has been published; tagged binaries remain a separate release decision.
+The GitHub workflow verifies the build and service-level tests. The v0.2.0 release provides a self-contained Windows x64 portable archive. Desktop UI behavior, IME-specific behavior, and different monitor topologies remain environment-dependent manual compatibility checks. The executable is not code-signed.
 
 ## What you can do
 

@@ -1,5 +1,18 @@
 # Worklog
 
+## 2026-08-30 v0.2.0 First Public Release
+
+- Set the app version to `0.2.0` for the first public tagged release.
+- Replaced the agent-assisted source-build installation path with the self-contained Windows x64 Release archive; installation no longer requires the .NET SDK.
+- Aligned the English and Simplified Chinese README status, installation steps, unsigned-binary warning, and manual compatibility limits.
+- Runtime behavior and Markdown safety contracts are unchanged.
+
+Validation:
+
+- `dotnet build .\DesktopOverlayBoard.sln --configuration Release` passed with 0 warnings and 0 errors.
+- `dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj --configuration Release --no-build` passed: `DesktopOverlayBoard.Tests: all tests passed`.
+- The Release build reports file version `0.2.0.0`.
+
 ## 2026-08-30 Modal Focus And Summary Configuration Revision
 
 - Deferred auto-launched New/Add flows until the Settings window completes its initial render, preventing a nested modal from competing with its owner during activation.

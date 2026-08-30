@@ -42,35 +42,29 @@ Glass Kanban Overlay 可以把普通 Markdown 作为人与 Agent 共享的工作
 
 > 请从 https://github.com/beniedev/glass-kanban-overlay 安装 Glass Kanban Overlay，启动它并教我基本用法。按照 README 中给安装 Agent 的说明执行。
 
-这种方式由 Agent 完成便携版源码构建，不代表项目提供了安装器或自动更新。
+Release 提供适用于 Windows x64 的自包含便携包，不需要 .NET SDK、安装器或自动更新程序。
 
 <details>
 <summary>给安装 Agent 的执行说明</summary>
 
-1. 确认电脑是 Windows x64。核对仓库 owner 和 Git remote 均为 `beniedev`；来源不符时停止安装。
-2. 用户没有指定位置时，默认安装到 `%LOCALAPPDATA%\Programs\GlassKanbanOverlay`。
-3. 如果目标目录已经存在，不要合并或覆盖。保留 `Data\config.json`，升级前先向用户说明并取得确认。
-4. 检查 .NET 8 SDK。若未安装，先解释用途，再征得用户同意并从微软官方来源安装。
-5. 把仓库克隆到工作目录，然后运行：
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
-   ```
-
-6. 将新生成的 `dist\GlassKanbanOverlay-win-x64-portable` 目录复制到安装位置。不要复制仓库中的 `Data` 或 `Log` 内容。
-7. 为 `GlassKanbanOverlay.exe` 创建桌面快捷方式，把工作目录设为安装目录，并启动一次。
-8. 安装过程中不要扫描 Vault，也不要擅自添加 Markdown 文件；每块看板都应让用户明确选择。
-9. 启动后向用户说明如何新建看板、添加现有 `.md` 看板、选择列、分窗到桌面、打开源文件，以及在哪里找到本地配置 `Data\config.json`。
+1. 确认电脑是 Windows x64，并核对仓库 owner 为 `beniedev`；下载来源不符时停止安装。
+2. 打开 [最新 GitHub Release](https://github.com/beniedev/glass-kanban-overlay/releases/latest)，从 **Assets** 下载 `GlassKanbanOverlay-win-x64-portable.zip`，不要用 GitHub 自动生成的源码压缩包代替。
+3. 用户没有指定位置时，默认安装到 `%LOCALAPPDATA%\Programs\GlassKanbanOverlay`。
+4. 如果目标目录已经存在，不要合并或覆盖。保留 `Data\config.json`，升级前先向用户说明并取得确认。
+5. 把便携包解压到一个新目录，再将该目录移到安装位置。确认其中包含 `GlassKanbanOverlay.exe`、`LICENSE`、`NOTICE.md` 和两份 README；如果压缩包里出现 `Data\config.json` 或 `Log\`，立即停止。
+6. 为 `GlassKanbanOverlay.exe` 创建桌面快捷方式，把工作目录设为安装目录，并启动一次。本版本尚未进行代码签名，因此 Windows 可能显示 SmartScreen 提示。
+7. 安装过程中不要扫描 Vault，也不要擅自添加 Markdown 文件；每块看板都应让用户明确选择。
+8. 启动后向用户说明如何新建看板、添加现有 `.md` 看板、选择列、分窗到桌面、打开源文件，以及在哪里找到本地配置 `Data\config.json`。
 
 </details>
 
 ## 项目状态
 
-**源码已公开——维护者实际试用已完成。**
+**v0.2.0——首个公开的 Windows x64 便携版本。**
 
 当前源码可以正常构建，服务层回归测试全部通过。维护者已在真实 Windows 桌面上试用新建看板、添加和移除看板、卡片操作、汇总与分窗、配置页面，以及当前工具栏和菜单布局。中性界面测试还覆盖缺失列恢复、外部编辑冲突、单实例唤起和窗口位置恢复。
 
-GitHub 工作流负责验证构建和服务层测试。桌面界面、输入法特定行为和不同显示器布局仍属于依赖实际环境的人工兼容性检查。项目尚未发布二进制版本；带标签的二进制发布仍属于单独的发布决策。
+GitHub 工作流负责验证构建和服务层测试。v0.2.0 提供适用于 Windows x64 的自包含便携包。桌面界面、输入法特定行为和不同显示器布局仍属于依赖实际环境的人工兼容性检查。本版本尚未进行代码签名。
 
 ## 可以做什么
 

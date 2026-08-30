@@ -8,6 +8,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>GlassKanbanOverlay</AssemblyName>
+    <Version>0.2.0</Version>
     <RootNamespace>DesktopOverlayBoard</RootNamespace>
     <ApplicationIcon>Assets\glass-board.ico</ApplicationIcon>
   </PropertyGroup>
