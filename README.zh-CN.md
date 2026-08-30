@@ -36,6 +36,34 @@ Glass Kanban Overlay 可以把普通 Markdown 作为人与 Agent 共享的工作
 
 外部 Agent 定时任务可以通过上述任一流程每天更新 TODO 看板。人在 Windows 上直接看到结果，并通过完成或移动卡片记录进度。之后，Agent 可以读取 Markdown 中的完成状态，根据实际完成情况整理每周和每月复盘。
 
+## 最省事的安装方式：把仓库交给本地 Agent
+
+把下面这一句话发给这台 Windows 电脑上你信任的本地 coding agent：
+
+> 请从 https://github.com/beniedev/glass-kanban-overlay 安装 Glass Kanban Overlay，启动它并教我基本用法。按照 README 中给安装 Agent 的说明执行。
+
+这种方式由 Agent 完成便携版源码构建，不代表项目提供了安装器或自动更新。
+
+<details>
+<summary>给安装 Agent 的执行说明</summary>
+
+1. 确认电脑是 Windows x64。核对仓库 owner 和 Git remote 均为 `beniedev`；来源不符时停止安装。
+2. 用户没有指定位置时，默认安装到 `%LOCALAPPDATA%\Programs\GlassKanbanOverlay`。
+3. 如果目标目录已经存在，不要合并或覆盖。保留 `Data\config.json`，升级前先向用户说明并取得确认。
+4. 检查 .NET 8 SDK。若未安装，先解释用途，再征得用户同意并从微软官方来源安装。
+5. 把仓库克隆到工作目录，然后运行：
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
+   ```
+
+6. 将新生成的 `dist\GlassKanbanOverlay-win-x64-portable` 目录复制到安装位置。不要复制仓库中的 `Data` 或 `Log` 内容。
+7. 为 `GlassKanbanOverlay.exe` 创建桌面快捷方式，把工作目录设为安装目录，并启动一次。
+8. 安装过程中不要扫描 Vault，也不要擅自添加 Markdown 文件；每块看板都应让用户明确选择。
+9. 启动后向用户说明如何新建看板、添加现有 `.md` 看板、选择列、分窗到桌面、打开源文件，以及在哪里找到本地配置 `Data\config.json`。
+
+</details>
+
 ## 项目状态
 
 **预发布——等待维护者验收。**
@@ -150,7 +178,7 @@ Markdown 写入采取保守策略：
 
 README 同样只维护两种语言：本简体中文文件和 [英文 README](README.md)。
 
-## 从源码开始使用
+## 手动从源码运行
 
 环境要求：
 

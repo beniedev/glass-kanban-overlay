@@ -36,6 +36,34 @@ A cloud AI app with access to a drive can read or update a Markdown board there.
 
 An external agent job can update a TODO board every day through either of the workflows above. The person sees the result on Windows and records progress by completing or moving cards. The agent can later read the Markdown completion state to prepare weekly and monthly reviews based on what was actually finished.
 
+## Easiest installation: give the repository to a local agent
+
+Send this one message to a trusted local coding agent on the Windows PC:
+
+> Install Glass Kanban Overlay from https://github.com/beniedev/glass-kanban-overlay, launch it, and teach me the basic workflow. Follow the installing-agent instructions in the README.
+
+This is an agent-assisted portable source build, not an installer or automatic updater.
+
+<details>
+<summary>Instructions for the installing agent</summary>
+
+1. Confirm that the computer is Windows x64. Verify that the repository owner and Git remote are `beniedev`; stop if the source came from somewhere else.
+2. Use `%LOCALAPPDATA%\Programs\GlassKanbanOverlay` as the default install folder unless the user gives another location.
+3. If that folder already exists, do not merge or overwrite it. Preserve `Data\config.json` and ask the user before performing an upgrade.
+4. Check for the .NET 8 SDK. If it is missing, explain why it is required and ask before installing it from an official Microsoft source.
+5. Clone the repository into a working folder and run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
+   ```
+
+6. Copy the newly created `dist\GlassKanbanOverlay-win-x64-portable` directory to the install folder. Do not copy repository `Data` or `Log` content.
+7. Create a desktop shortcut to `GlassKanbanOverlay.exe`, set its working directory to the install folder, and launch it once.
+8. Do not scan a vault or add any Markdown file during installation. Ask the user to choose each board file explicitly.
+9. After launch, explain how to create a board, add an existing `.md` board, select a column, split it to the desktop, open the source file, and find `Data\config.json` for local configuration.
+
+</details>
+
 ## Project status
 
 **Pre-release — awaiting maintainer acceptance.**
@@ -150,7 +178,7 @@ The maintained interface languages are:
 
 The README is maintained in the same two languages: this English file and [README.zh-CN.md](README.zh-CN.md).
 
-## Quick start from source
+## Manual source setup
 
 Requirements:
 
