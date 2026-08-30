@@ -1,5 +1,12 @@
 # Worklog
 
+## 2026-08-30 Maintainer Toolbar And Board-Menu Revision
+
+- Reordered the summary toolbar to **New board**, **Add existing**, **Refresh**, and **Split to desktop**, with the close-to-tray control retained after them and the visible Settings button removed.
+- Routed the two new toolbar entries through the existing Settings-window creation and add-existing flows instead of duplicating file or validation logic.
+- Replaced the per-board menu with **Split to desktop**, **Open source Markdown file**, **Configure window**, and **Remove board**; the split action now explicitly applies desktop mode, and the menu button has a localized accessible name.
+- Markdown write safety, removal confirmation, source-file preservation, and conflict checks are unchanged.
+
 ## 2026-08-30 GKO-PUBLIC-001 Public-Candidate Integration, Review And RC Evidence
 
 - Added the first public-candidate interaction paths: two new-board templates (`TODO / DONE` and `TODO / DOING / DONE`), add-existing-board flow, remove-from-summary cleanup, and four missing-column recovery actions.

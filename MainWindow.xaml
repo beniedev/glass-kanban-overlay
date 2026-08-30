@@ -59,9 +59,10 @@
                         </Border>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="OpenAllBoardsButton" Content="Split" Tag="Action.SplitToDesktop" Click="OpenAllBoardsButton_Click" Style="{StaticResource ToolButtonStyle}"/>
-                        <Button x:Name="SettingsButton" Content="Settings" Tag="Action.Settings" Click="SettingsButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                        <Button Content="New board" Tag="Action.NewBoard" Click="NewBoardButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                        <Button Content="Add existing" Tag="Action.AddExistingBoard" Click="AddExistingButton_Click" Style="{StaticResource ToolButtonStyle}"/>
                         <Button x:Name="RefreshButton" Content="Refresh" Tag="Action.Refresh" Click="RefreshButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                        <Button x:Name="OpenAllBoardsButton" Content="Split" Tag="Action.SplitToDesktop" Click="OpenAllBoardsButton_Click" Style="{StaticResource ToolButtonStyle}"/>
                         <Button x:Name="CloseButton" Content="x" Click="CloseButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16"/>
                     </StackPanel>
                 </Grid>
@@ -95,9 +96,10 @@
                             <TextBlock Text="Kanban" Foreground="{StaticResource WidgetMutedInk}" FontSize="17" FontWeight="SemiBold" Margin="8,7,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Content="Split all" Tag="Action.SplitAll" Click="OpenAllBoardsButton_Click" Style="{StaticResource ToolButtonStyle}" ToolTip="Turn every configured column into a desktop widget"/>
-                            <Button Content="R" Tag="Action.Refresh" Click="RefreshButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="14" ToolTip="Refresh"/>
-                            <Button Content="S" Tag="Action.Settings" Click="SettingsButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="14" ToolTip="Settings"/>
+                            <Button Content="New board" Tag="Action.NewBoard" Click="NewBoardButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                            <Button Content="Add existing" Tag="Action.AddExistingBoard" Click="AddExistingButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                            <Button Content="Refresh" Tag="Action.Refresh" Click="RefreshButton_Click" Style="{StaticResource ToolButtonStyle}"/>
+                            <Button Content="Split to desktop" Tag="Action.SplitToDesktop" Click="OpenAllBoardsButton_Click" Style="{StaticResource ToolButtonStyle}"/>
                             <Button Content="x" Click="CloseButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16" ToolTip="Minimize to tray"/>
                         </StackPanel>
                     </Grid>

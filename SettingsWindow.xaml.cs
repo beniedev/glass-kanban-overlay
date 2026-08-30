@@ -8,17 +8,30 @@ using Microsoft.Win32;
 
 namespace DesktopOverlayBoard;
 
+public enum SettingsLaunchAction
+{
+    None,
+    NewBoard,
+    AddExistingBoard,
+}
+
 public partial class SettingsWindow : Window
 {
     private readonly AppConfig _config;
     private readonly MarkdownKanbanService _kanban;
+    private readonly SettingsLaunchAction _launchAction;
     private bool _updating;
+    private bool _launchActionStarted;
 
-    public SettingsWindow(AppConfig config, MarkdownKanbanService kanban)
+    public SettingsWindow(
+        AppConfig config,
+        MarkdownKanbanService kanban,
+        SettingsLaunchAction launchAction = SettingsLaunchAction.None)
     {
         InitializeComponent();
         _config = config;
         _kanban = kanban;
+        _launchAction = launchAction;
         LocalizationService.Use(_config.UiLanguage);
         LocalizationService.ApplyTo(this);
         TextInputService.EnableIme(DisplayNameBox);
@@ -35,6 +48,8 @@ public partial class SettingsWindow : Window
         {
             BoardsList.SelectedIndex = 0;
         }
+
+        ContentRendered += SettingsWindow_ContentRendered;
     }
 
     private BoardConfig? SelectedBoard => BoardsList.SelectedItem as BoardConfig;
@@ -111,7 +126,31 @@ public partial class SettingsWindow : Window
         _config.Startup.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
     }
 
+    private void SettingsWindow_ContentRendered(object? sender, EventArgs e)
+    {
+        if (_launchActionStarted || _launchAction == SettingsLaunchAction.None)
+        {
+            return;
+        }
+
+        _launchActionStarted = true;
+        switch (_launchAction)
+        {
+            case SettingsLaunchAction.NewBoard:
+                StartNewBoardFlow();
+                break;
+            case SettingsLaunchAction.AddExistingBoard:
+                StartAddExistingBoardFlow();
+                break;
+        }
+    }
+
     private void NewBoardButton_Click(object sender, RoutedEventArgs e)
+    {
+        StartNewBoardFlow();
+    }
+
+    private void StartNewBoardFlow()
     {
         var templateOptions = new[] { "TODO / DONE", "TODO / DOING / DONE" };
         var templateSelect = new ColumnSelectWindow(
@@ -179,6 +218,11 @@ public partial class SettingsWindow : Window
     }
 
     private void AddExistingButton_Click(object sender, RoutedEventArgs e)
+    {
+        StartAddExistingBoardFlow();
+    }
+
+    private void StartAddExistingBoardFlow()
     {
         var dialog = new OpenFileDialog
         {

@@ -12,6 +12,8 @@ The source tree is under maintainer acceptance. The current build and service-le
 
 - **New board** creates a new `.md` file from either a `TODO / DONE` or `TODO / DOING / DONE` template. Existing files are never overwritten.
 - **Add existing** keeps the original flow for selecting an existing Markdown board and one of its `##` columns.
+- The summary toolbar exposes **New board**, **Add existing**, **Refresh**, and **Split to desktop** in that order.
+- Each board menu exposes **Split to desktop**, **Open source Markdown file**, **Configure window**, and **Remove board**. The configuration entry opens the existing settings window; removal still requires confirmation.
 - **Remove from summary** removes the app view, closes its split widget, and clears saved open-window state without deleting or rewriting the source Markdown file.
 - If a selected column is missing, the error state offers four recovery paths: select another existing column, create the missing `##` heading after confirmation, open the source file, or remove the view.
 - While a card is being entered or edited, an external file change does not destroy the draft. Refresh waits until submit/cancel; a changed target remains a visible, fail-closed conflict.

@@ -508,6 +508,9 @@ static void TestLocalization()
         "Action.ReselectColumn",
         "Action.CreateMissingColumn",
         "Action.RemoveFromSummary",
+        "Action.BoardMenu",
+        "Action.ConfigureWindow",
+        "Action.RemoveBoard",
         "Dialog.MissingColumn",
         "Dialog.CreateMissingColumn",
         "Dialog.RemoveFromSummary",
@@ -537,6 +540,12 @@ static void TestLocalization()
     Assert(LocalizationService.Text("Action.ReselectColumn") == "重新选择列", "zh reselect-column label mismatch");
     Assert(LocalizationService.Text("Action.CreateMissingColumn") == "创建缺失列", "zh create-column label mismatch");
     Assert(LocalizationService.Text("Action.RemoveFromSummary") == "从汇总移除", "zh remove-summary label mismatch");
+    Assert(LocalizationService.Text("Action.NewBoard") == "新建看板", "zh new-board label mismatch");
+    Assert(LocalizationService.Text("Action.AddExistingBoard") == "添加现有看板", "zh add-existing label mismatch");
+    Assert(LocalizationService.Text("Action.SplitToDesktop") == "分窗到桌面", "zh split-to-desktop label mismatch");
+    Assert(LocalizationService.Text("Action.OpenSource") == "打开原 Markdown 文件", "zh open-source label mismatch");
+    Assert(LocalizationService.Text("Action.ConfigureWindow") == "配置窗口", "zh configure-window label mismatch");
+    Assert(LocalizationService.Text("Action.RemoveBoard") == "移除看板", "zh remove-board label mismatch");
     Assert(LocalizationService.NormalizeCode("zh-TW") == "zh-Hant", "zh-TW should normalize to zh-Hant");
     LocalizationService.Use("zh-TW");
     Assert(LocalizationService.CurrentCode == "zh-Hant", "zh-TW should resolve to zh-Hant");

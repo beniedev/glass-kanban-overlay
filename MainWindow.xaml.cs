@@ -109,7 +109,6 @@ public partial class MainWindow : Window
         DesktopMenuItem.Header = T("Action.DesktopWidget");
         LockMenuItem.Header = T("Action.LockPosition");
         OpenAllBoardsButton.Content = T("Action.SplitToDesktop");
-        SettingsButton.Content = T("Action.Settings");
         RefreshButton.Content = T("Action.Refresh");
         CloseButton.ToolTip = T("Action.HideToTray");
         if (_trayIcon is not null)
@@ -432,12 +431,13 @@ public partial class MainWindow : Window
 
     private Button ColumnMenuButton(BoardGroup group)
     {
-        var button = MiniButton("...", (_, _) => { }, "Column menu");
+        var button = MiniButton("...", (_, _) => { }, T("Action.BoardMenu"));
+        System.Windows.Automation.AutomationProperties.SetName(button, T("Action.BoardMenu"));
         var menu = new ContextMenu();
-        menu.Items.Add(MenuItem(T("Action.OpenAsWindow"), (_, _) => OpenSingleWindow(group.Board)));
+        menu.Items.Add(MenuItem(T("Action.SplitToDesktop"), (_, _) => OpenSingleWindow(group.Board).SetDesktopMode()));
         menu.Items.Add(MenuItem(T("Action.OpenSource"), (_, _) => _kanban.OpenSource(group.Board.FilePath)));
-        menu.Items.Add(MenuItem(T("Action.Refresh"), async (_, _) => await ReloadAsync()));
-        menu.Items.Add(MenuItem(T("Action.RemoveFromSummary"), async (_, _) => await RemoveBoardFromSummaryAsync(group.Board, this)));
+        menu.Items.Add(MenuItem(T("Action.ConfigureWindow"), async (_, _) => await ShowSettingsAsync()));
+        menu.Items.Add(MenuItem(T("Action.RemoveBoard"), async (_, _) => await RemoveBoardFromSummaryAsync(group.Board, this)));
         button.ContextMenu = menu;
         button.Click += (_, _) =>
         {
@@ -1020,10 +1020,20 @@ public partial class MainWindow : Window
         await ShowSettingsAsync();
     }
 
-    public async Task ShowSettingsAsync()
+    private async void NewBoardButton_Click(object sender, RoutedEventArgs e)
+    {
+        await ShowSettingsAsync(SettingsLaunchAction.NewBoard);
+    }
+
+    private async void AddExistingButton_Click(object sender, RoutedEventArgs e)
+    {
+        await ShowSettingsAsync(SettingsLaunchAction.AddExistingBoard);
+    }
+
+    public async Task ShowSettingsAsync(SettingsLaunchAction launchAction = SettingsLaunchAction.None)
     {
         var working = _config.Clone();
-        var dialog = new SettingsWindow(working, _kanban);
+        var dialog = new SettingsWindow(working, _kanban, launchAction);
         if (IsVisible)
         {
             dialog.Owner = this;
