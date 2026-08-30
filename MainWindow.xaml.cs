@@ -463,13 +463,13 @@ public partial class MainWindow : Window
             return panel;
         }
 
-        var actions = new WrapPanel { Margin = new Thickness(-4, 8, 0, 0) };
-        actions.Children.Add(MiniButton(T("Action.ReselectColumn"), async (_, _) =>
+        var actions = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        actions.Children.Add(RecoveryButton(T("Action.ReselectColumn"), async (_, _) =>
             await RecoverMissingColumnAsync(group, this, MissingColumnRecoveryAction.Reselect)));
-        actions.Children.Add(MiniButton(T("Action.CreateMissingColumn"), async (_, _) =>
+        actions.Children.Add(RecoveryButton(T("Action.CreateMissingColumn"), async (_, _) =>
             await RecoverMissingColumnAsync(group, this, MissingColumnRecoveryAction.Create)));
-        actions.Children.Add(MiniButton(T("Action.OpenSource"), (_, _) => _kanban.OpenSource(group.Board.FilePath)));
-        actions.Children.Add(MiniButton(T("Action.RemoveFromSummary"), async (_, _) =>
+        actions.Children.Add(RecoveryButton(T("Action.OpenSource"), (_, _) => _kanban.OpenSource(group.Board.FilePath)));
+        actions.Children.Add(RecoveryButton(T("Action.RemoveFromSummary"), async (_, _) =>
             await RecoverMissingColumnAsync(group, this, MissingColumnRecoveryAction.Remove)));
         panel.Children.Add(actions);
         return panel;
@@ -721,6 +721,15 @@ public partial class MainWindow : Window
             Style = (Style)FindResource("ToolButtonStyle"),
         };
         button.Click += onClick;
+        return button;
+    }
+
+    private System.Windows.Controls.Button RecoveryButton(string label, RoutedEventHandler onClick)
+    {
+        var button = MiniButton(label, onClick);
+        button.HorizontalAlignment = HorizontalAlignment.Stretch;
+        button.Margin = new Thickness(0, 0, 0, 6);
+        button.Height = 30;
         return button;
     }
 

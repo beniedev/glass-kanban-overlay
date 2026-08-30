@@ -77,6 +77,10 @@ public partial class SingleBoardWindow : Window
         NormalMenuItem.Header = T("Action.NormalWindow");
         DesktopMenuItem.Header = T("Action.DesktopWidget");
         LockMenuItem.Header = T("Action.LockPosition");
+        MainTitleText.ToolTip = T("ToolTip.EditTitle");
+        ColumnText.ToolTip = T("ToolTip.EditNote");
+        ColumnMenuButton.ToolTip = T("ToolTip.BoardActions");
+        AddCardButton.ToolTip = T("ToolTip.NewTask");
     }
 
     private async void SingleBoardWindow_Loaded(object sender, RoutedEventArgs e)
@@ -174,14 +178,14 @@ public partial class SingleBoardWindow : Window
             return panel;
         }
 
-        var actions = new WrapPanel { Margin = new Thickness(-4, 8, 0, 0) };
-        actions.Children.Add(MiniButton(T("Action.ReselectColumn"), async (_, _) =>
+        var actions = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        actions.Children.Add(RecoveryButton(T("Action.ReselectColumn"), async (_, _) =>
             await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Reselect)));
-        actions.Children.Add(MiniButton(T("Action.CreateMissingColumn"), async (_, _) =>
+        actions.Children.Add(RecoveryButton(T("Action.CreateMissingColumn"), async (_, _) =>
             await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Create)));
-        actions.Children.Add(MiniButton(T("Action.OpenSource"), async (_, _) =>
+        actions.Children.Add(RecoveryButton(T("Action.OpenSource"), async (_, _) =>
             await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.OpenSource)));
-        actions.Children.Add(MiniButton(T("Action.RemoveFromSummary"), async (_, _) =>
+        actions.Children.Add(RecoveryButton(T("Action.RemoveFromSummary"), async (_, _) =>
             await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Remove)));
         panel.Children.Add(actions);
         return panel;
@@ -564,6 +568,15 @@ public partial class SingleBoardWindow : Window
             Style = (Style)FindResource("ToolButtonStyle"),
         };
         button.Click += onClick;
+        return button;
+    }
+
+    private System.Windows.Controls.Button RecoveryButton(string label, RoutedEventHandler onClick)
+    {
+        var button = MiniButton(label, onClick);
+        button.HorizontalAlignment = HorizontalAlignment.Stretch;
+        button.Margin = new Thickness(0, 0, 0, 6);
+        button.Height = 30;
         return button;
     }
 
@@ -957,7 +970,7 @@ public partial class SingleBoardWindow : Window
 
     private void ThemeMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is MenuItem { Tag: string theme })
+        if (sender is MenuItem { CommandParameter: string theme })
         {
             _board.WidgetTheme = theme;
             ApplyGlassOpacity(OpacitySlider.Value);

@@ -1,46 +1,65 @@
 # Glass Kanban Overlay
 
-Transparent Windows desktop widgets for selected Obsidian Kanban / Markdown board columns.
+English | [简体中文](README.zh-CN.md)
+
+Keep selected Obsidian Kanban columns visible as transparent Windows desktop widgets.
 
 ![Glass Kanban Overlay preview](docs/assets/glass-kanban-overlay-preview.png)
 
-Glass Kanban Overlay is a local-first WPF/.NET 8 desktop app. You explicitly choose Markdown board files and columns, then keep those columns visible as glass widgets without opening Obsidian. It is not an Obsidian plugin, does not use AI or cloud sync, and does not scan your whole vault.
+Glass Kanban Overlay is a local-first WPF/.NET 8 app for Windows. You choose the Markdown board files and `##` columns you want to see; the app shows only those columns in a summary window or as separate desktop widgets.
 
-## Status
+It is not an Obsidian plugin. It does not scan the whole vault, use AI, sync to a cloud service, or send telemetry.
 
-The source tree is under maintainer acceptance. The current build and service-level regression suite cover the local interaction needed for a first trial:
+## Project status
 
-- **New board** creates a new `.md` file from either a `TODO / DONE` or `TODO / DOING / DONE` template. Existing files are never overwritten.
-- **Add existing** keeps the original flow for selecting an existing Markdown board and one of its `##` columns.
-- The summary toolbar exposes **New board**, **Add existing**, **Refresh**, and **Split to desktop** in that order.
-- Each board menu exposes **Split to desktop**, **Open source Markdown file**, **Configure window**, and **Remove board**. The configuration entry opens the existing settings window; removal still requires confirmation.
-- Long board titles and widget notes wrap within the available header width in both the summary cards and split desktop widgets; action buttons stay in their own fixed column.
-- **Remove from summary** removes the app view, closes its split widget, and clears saved open-window state without deleting or rewriting the source Markdown file.
-- If a selected column is missing, the error state offers four recovery paths: select another existing column, create the missing `##` heading after confirmation, open the source file, or remove the view.
-- While a card is being entered or edited, an external file change does not destroy the draft. Refresh waits until submit/cancel; a changed target remains a visible, fail-closed conflict.
-- A named Windows mutex keeps one current app instance. A second launch signals the existing instance to show/restore and activate its window, then exits.
+**Pre-release — awaiting maintainer acceptance.**
 
-Summary and split windows now route saved rectangles through a shared working-area clamp. A rectangle with at least `48x48` of usable intersection stays where it is; a fully or clearly off-screen rectangle is moved to the nearest working area. The 48x48 reachability rule has automated coverage, and failed Win32 placement calls are written to the local log. A real display-topology change still needs manual acceptance.
+The current source builds cleanly and its service-level regression suite passes. Neutral Windows UI checks cover board creation, adding an existing board, card actions, missing-column recovery, external-edit conflicts, single-instance activation, window recovery, and the current toolbar/menu layout.
 
-No binary release is published yet. The source can produce a self-contained win-x64 portable candidate with the packaging script below, but the maintainer still needs to build and inspect that package. The GitHub workflow checks build and service-level tests only; it does not verify desktop UI behavior.
+Manual acceptance is still required for Microsoft Pinyin candidate-selection Enter behavior and a real multi-display topology. No binary release has been published. The GitHub workflow verifies build and service-level tests; it does not verify desktop UI behavior.
 
-## What it shows
+## What you can do
 
-- A summary window with selected columns side by side.
-- Each selected column as an independent desktop widget.
-- Desktop, topmost, and normal window modes.
-- A tray icon for showing the summary, opening split widgets, settings, and exit.
-- Glass styling for widgets, settings, menus, edit prompts, and confirmations.
-- Inline add, checkbox toggle, edit, move-to-top, delete, archive, and same-column reorder actions.
-- The source Markdown file in the system default editor.
+- Create a new Markdown board from a `TODO / DONE` or `TODO / DOING / DONE` template.
+- Add an existing Markdown board and choose one of its `##` columns.
+- View selected columns together in the summary window.
+- Split selected columns into independent desktop widgets.
+- Add, edit, complete, move to top, reorder, archive, or delete cards.
+- Open the source Markdown file in the system default editor.
+- Choose desktop, always-on-top, or normal window mode.
+- Restore off-screen windows to the nearest usable display area.
+- Keep drafts intact when an external file refresh arrives during editing.
+
+Long board titles and widget notes wrap within the available header width. Action buttons remain in their own fixed column.
+
+## Main actions
+
+The summary toolbar uses these labels and this order:
+
+1. **New board**
+2. **Add existing**
+3. **Refresh**
+4. **Split to desktop**
+
+Each board menu uses:
+
+1. **Split to desktop**
+2. **Open source Markdown file**
+3. **Configure window**
+4. **Remove board**
+
+Removing a board from the app closes its split widget and clears its saved window state. It does not delete or rewrite the source Markdown file.
 
 ## Obsidian Kanban compatibility
 
-The parser targets the Markdown subset used by the Obsidian Kanban plugin:
+The parser targets the Markdown subset used by the [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban):
 
-- board files are Markdown files with `##` headings as columns;
-- cards are Markdown checkbox tasks such as `- [ ] Write README`;
-- Kanban settings blocks are preserved:
+- `##` headings are board columns.
+- Checkbox tasks such as `- [ ] Write README` are cards.
+- Frontmatter, ordinary paragraphs, block IDs, and Kanban settings blocks are preserved.
+- Public-safe examples are available in [`examples/`](examples/).
+
+A minimal supported settings block looks like this:
 
 ````markdown
 %% kanban:settings
@@ -50,15 +69,11 @@ The parser targets the Markdown subset used by the Obsidian Kanban plugin:
 %%
 ````
 
-The app recognizes these archive settings when present:
+### Archive behavior
 
-- `archive-with-date`
-- `archive-date-format`
-- `archive-date-separator`
-- `append-archive-date`
-- `max-archive-size`
+Archive is different from delete. Delete removes the card line. Archive moves the card out of the active column and into the Markdown archive section near the end of the file.
 
-Archive is not delete. Delete removes the card line. Archive moves the card out of the active column and into the board's Markdown archive section near the bottom of the file:
+The app recognizes the standard `## Archive` heading. It also recognizes the literal Simplified Chinese heading `## 归档` when that heading follows the `***` archive separator.
 
 ````markdown
 ***
@@ -74,31 +89,39 @@ Archive is not delete. Delete removes the card line. Archive moves the card out 
 %%
 ````
 
-The app also recognizes an existing `## 归档` heading when it follows the `***` archive separator. For the full supported subset, inspect the parser and the public-safe files in [`examples/`](examples/).
+These Obsidian Kanban archive settings are preserved when present:
 
-## Safety contract
+- `archive-with-date`
+- `archive-date-format`
+- `archive-date-separator`
+- `append-archive-date`
+- `max-archive-size`
 
-The writer is intentionally conservative:
+## Safety boundary
 
-- Only files explicitly added in settings are read or written.
-- Archive-like paths are refused by default if they contain `归档`, `Archive`, `archive`, `backup`, `backups`, `备份`, or `_任务备份`.
+Markdown writes are deliberately conservative:
+
+- Only board files explicitly added in the app are read or written.
+- Archive- or backup-like paths are blocked by default.
 - Every write re-reads the source file first.
-- Writes are refused if the target column hash changed since the widget loaded it.
-- Task edits also check that the original task line is still exactly where expected.
-- Writes to one board are serialized across app instances, re-read while write-locked, and committed with an atomic same-directory replacement.
-- Task text containing line breaks is refused so one card cannot inject extra Markdown lines.
-- Frontmatter, Kanban settings, ordinary paragraphs, and block IDs are preserved.
-- Adding a card inserts only one task line.
-- Editing, toggling, deleting, archiving, and same-column reordering patch only the target line or target column/archive area.
+- A write is refused if the target column changed after the widget loaded it.
+- Card edits also verify that the original task line is still where expected.
+- Writes to one board are serialized across app instances and committed with an atomic same-directory replacement.
+- Card text must remain on one line and cannot inject extra Markdown lines.
+- Adding a card inserts one task line; other actions patch only the intended line, column, or archive area.
 
-## Out of scope
+Missing columns are handled explicitly. You can choose another column, create the missing heading after confirmation, open the source file, or remove the board from the app.
 
-- AI integration, cloud sync, telemetry, or background network behavior.
-- Automatic full-vault scanning.
-- Cross-column drag/drop or bulk multi-select.
-- Automatic archive sweeps.
-- Guaranteed support for every advanced Obsidian Kanban card shape, such as complex nested card bodies.
-- An installer, updater, Microsoft Store package, signing certificate, or multi-architecture release matrix.
+## Interface languages
+
+The maintained interface languages are:
+
+- English
+- 简体中文
+
+**Auto / 跟随 Windows** uses Simplified Chinese for Chinese Windows locales and English for other locales. Legacy Traditional Chinese locale codes migrate to Simplified Chinese. Removed language values fall back to automatic selection instead of breaking configuration loading.
+
+The README is maintained in the same two languages: this English file and [README.zh-CN.md](README.zh-CN.md).
 
 ## Quick start from source
 
@@ -107,83 +130,77 @@ Requirements:
 - Windows
 - .NET 8 SDK
 
-Build and run the service-level regression suite:
+Build and run the regression suite:
 
 ```powershell
 dotnet build .\DesktopOverlayBoard.sln
 dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj
 ```
 
-Prepare a fresh portable candidate (the script refuses to overwrite an existing candidate directory or zip):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
-```
-
-The script builds the app and tests, publishes a self-contained `win-x64` directory, copies `LICENSE`, `NOTICE.md`, and `README.md`, and creates a zip. It does not package `Data\config.json` or `Log\`. It does not replace the flat `dist\GlassKanbanOverlay.exe` dogfood build.
-
-To launch a local build, use:
+Launch from source or an existing local build:
 
 ```powershell
 .\run-glass-kanban-overlay.ps1
 ```
 
-The launcher prefers the portable candidate, then the flat published executable, and otherwise runs the project from source.
+Create a fresh self-contained win-x64 portable candidate:
 
-## Configuration
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
+```
 
-Local config lives at:
+The packaging script refuses to overwrite an existing candidate. It builds and tests the app, publishes a self-contained executable, includes the license, notice, and both README languages, then creates a zip. It never packages local configuration or logs and does not replace the flat local dogfood executable.
+
+## Local configuration
+
+Runtime configuration is stored in:
 
 ```text
 Data\config.json
 ```
 
-That file is intentionally ignored because it contains machine-specific paths. Public examples should use [`Data/config.sample.json`](Data/config.sample.json); tests use temporary board files and do not depend on a maintainer's vault.
+This file is ignored because it contains machine-specific paths. Use [`Data/config.sample.json`](Data/config.sample.json) for public examples. Tests create temporary neutral board files and do not depend on a maintainer's vault.
 
-## Repository layout
+## Limits
+
+Glass Kanban Overlay does not currently provide:
+
+- automatic whole-vault scanning;
+- cross-column drag-and-drop or bulk selection;
+- automatic archive sweeps;
+- guaranteed support for every complex nested Obsidian Kanban card shape;
+- an installer, automatic updater, Microsoft Store package, code signing, or a multi-architecture release matrix.
+
+## Repository map
 
 ```text
 glass-kanban-overlay\
-  App.xaml                         shared glass styles
-  MainWindow.xaml(.cs)             summary board, tray, split-window orchestration
-  SingleBoardWindow.xaml(.cs)      one board column as a desktop widget
-  SettingsWindow.xaml(.cs)         new/existing board and startup settings
-  Services\MarkdownKanbanService.cs Markdown parse/write safety boundary
-  Services\ConfigService.cs        config load/save and migration
+  App.xaml                          shared glass styles
+  MainWindow.xaml(.cs)              summary window, tray, split-widget orchestration
+  SingleBoardWindow.xaml(.cs)       one board column as a desktop widget
+  SettingsWindow.xaml(.cs)          board setup, language, and startup settings
+  Services\MarkdownKanbanService.cs Markdown parsing and write-safety boundary
+  Services\LocalizationService.cs   English and Simplified Chinese interface text
+  Services\ConfigService.cs         configuration loading, saving, and migration
   Services\SingleInstanceService.cs one-instance mutex and activation signal
-  Services\WindowPlacementService.cs placement modes and rectangle helper
-  Models\*.cs                      config and Kanban data models
-  Tests\Program.cs                 lightweight service-level regression tests
-  Data\config.sample.json          public sample config
-  docs\assets\                    public-safe preview image
-  scripts\New-PortableRelease.ps1 portable candidate builder
+  Services\WindowPlacementService.cs window modes and display-area recovery
+  Models\*.cs                       configuration and Kanban data models
+  Tests\Program.cs                  service-level regression tests
+  Data\config.sample.json           public sample configuration
+  docs\assets\                     public-safe preview image
+  scripts\New-PortableRelease.ps1  portable candidate builder
 ```
 
-## Agent handoff
+## Development notes
 
-If you are an AI agent working on this repo, read [`AGENTS.md`](AGENTS.md) before editing:
+Read [AGENTS.md](AGENTS.md) before editing this repository. In particular:
 
 - Do not broaden the app into a vault scanner.
-- Do not add cloud sync or AI behavior.
-- Do not silently swallow write failures.
-- Do not weaken conflict checks to make tests pass.
-- Keep changes small and verify with `dotnet build` plus `dotnet run --project Tests\DesktopOverlayBoard.Tests.csproj`.
-- UI changes need a manual Windows launch and screenshot check because this is a visual desktop widget.
-- After non-trivial changes, update this README or [`docs/WORKLOG.md`](docs/WORKLOG.md) with changed files, reason, validation, and remaining risk.
+- Do not add AI, cloud sync, telemetry, or background network behavior.
+- Do not weaken conflict checks or silently swallow write failures.
+- Verify code changes with the solution build and regression suite.
+- Verify UI changes with a real Windows launch and screenshot.
 
-## Release status
+## Reporting a problem
 
-The source build and service-level tests are green. Maintainer acceptance and manual Windows checks are still in progress, including neutral example-board interaction, IME/external-edit behavior, display-topology recovery, and portable-package inspection. No binary release is published yet; source review and binary distribution are separate decisions.
-
-## Related projects
-
-- [Obsidian Kanban plugin](https://github.com/obsidian-community/obsidian-kanban): the Markdown-backed Kanban format this app aims to interoperate with.
-- [Task Board](https://www.obsidianstats.com/plugins/task-board): an Obsidian plugin that scans tasks across a vault.
-- [CardBoard](https://community.obsidian.md/plugins/card-board): an Obsidian plugin for showing Markdown tasks on Kanban-style boards.
-- [TaskForge](https://taskforge.md/): a standalone Obsidian task app with mobile apps and a Windows app planned.
-
-Glass Kanban Overlay is different because it is a Windows desktop overlay for explicitly selected board files and columns across vaults.
-
-## Support
-
-This is a local-first project. Please include your Windows/.NET version, the neutral example board used, and the exact operation that failed when reporting a problem. Do not attach `Data\config.json`, `Log\`, private vault files, or credentials.
+Include the Windows/.NET version, a neutral example board, and the exact action that failed. Do not attach `Data/config.json`, logs, private vault files, or credentials.

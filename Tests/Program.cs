@@ -519,7 +519,11 @@ static void TestLocalization()
         "Message.RemoveFromSummaryPrompt",
     };
 
-    foreach (var language in new[] { "en", "zh", "zh-Hant", "ja", "ko", "fr", "es", "ru", "ar" })
+    Assert(
+        LocalizationService.SupportedLanguages.Select(option => option.Code).SequenceEqual(new[] { "auto", "en", "zh" }),
+        "only automatic, English, and Simplified Chinese UI options should remain");
+
+    foreach (var language in new[] { "en", "zh" })
     {
         LocalizationService.Use(language);
         var addCard = LocalizationService.Text("Action.AddCard");
@@ -546,9 +550,13 @@ static void TestLocalization()
     Assert(LocalizationService.Text("Action.OpenSource") == "打开原 Markdown 文件", "zh open-source label mismatch");
     Assert(LocalizationService.Text("Action.ConfigureWindow") == "配置窗口", "zh configure-window label mismatch");
     Assert(LocalizationService.Text("Action.RemoveBoard") == "移除看板", "zh remove-board label mismatch");
-    Assert(LocalizationService.NormalizeCode("zh-TW") == "zh-Hant", "zh-TW should normalize to zh-Hant");
+    Assert(LocalizationService.Text("Action.Ink") == "墨黑", "zh ink-theme label mismatch");
+    Assert(LocalizationService.Text("Label.Vault") == "仓库", "zh vault label mismatch");
+    Assert(LocalizationService.NormalizeCode("zh-TW") == "zh", "legacy Traditional Chinese codes should normalize to Simplified Chinese");
+    Assert(LocalizationService.NormalizeCode("ja") == "auto", "removed languages should normalize to automatic selection");
     LocalizationService.Use("zh-TW");
-    Assert(LocalizationService.CurrentCode == "zh-Hant", "zh-TW should resolve to zh-Hant");
+    Assert(LocalizationService.CurrentCode == "zh", "legacy Traditional Chinese codes should resolve to Simplified Chinese");
+    Assert(!LocalizationService.IsRightToLeft, "the English/Chinese UI should stay left-to-right");
     LocalizationService.Use("auto");
 }
 

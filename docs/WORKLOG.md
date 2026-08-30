@@ -1,11 +1,19 @@
 # Worklog
 
+## 2026-08-30 English And Simplified Chinese Documentation And UI
+
+- Reworked the public README around the user-facing mental model, current interaction labels, Markdown compatibility, safety boundary, pre-release status, and source quick start; added a complete Simplified Chinese counterpart with matching scope and limitations.
+- Reduced the maintained UI languages to English and Simplified Chinese because the removed translations were incomplete and silently fell back to English. Legacy Traditional Chinese locale values now migrate to Simplified Chinese; other removed values fall back to automatic selection.
+- Completed every Simplified Chinese localization key, localized the theme labels and remaining static tooltips, and aligned source-file and split-to-desktop wording with the README.
+- Updated the portable candidate script to include both README languages. Markdown write behavior and safety checks are unchanged.
+
 ## 2026-08-30 Maintainer Toolbar And Board-Menu Revision
 
 - Reordered the summary toolbar to **New board**, **Add existing**, **Refresh**, and **Split to desktop**, with the close-to-tray control retained after them and the visible Settings button removed.
 - Routed the two new toolbar entries through the existing Settings-window creation and add-existing flows instead of duplicating file or validation logic.
 - Replaced the per-board menu with **Split to desktop**, **Open source Markdown file**, **Configure window**, and **Remove board**; the split action now explicitly applies desktop mode, and the menu button has a localized accessible name.
 - Made long board-title and widget-note fields wrap inside the available header width in summary cards and split widgets, while keeping the action-button columns fixed.
+- Replaced the crowded horizontal missing-column recovery row with four full-width vertical actions in both summary cards and split widgets.
 - Markdown write safety, removal confirmation, source-file preservation, and conflict checks are unchanged.
 
 ## 2026-08-30 GKO-PUBLIC-001 Public-Candidate Integration, Review And RC Evidence

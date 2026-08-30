@@ -26,14 +26,14 @@
                 <Separator/>
                 <MenuItem Header="Configure boards" Tag="Action.ConfigureBoards" Click="ConfigureMenuItem_Click"/>
                 <MenuItem Header="Appearance" Tag="Action.Theme">
-                    <MenuItem Header="Ink" Tag="ink" Click="ThemeMenuItem_Click"/>
-                    <MenuItem Header="Blue" Tag="blue" Click="ThemeMenuItem_Click"/>
-                    <MenuItem Header="Green" Tag="green" Click="ThemeMenuItem_Click"/>
-                    <MenuItem Header="Plum" Tag="plum" Click="ThemeMenuItem_Click"/>
-                    <MenuItem Header="Amber" Tag="amber" Click="ThemeMenuItem_Click"/>
+                    <MenuItem Header="Ink" Tag="Action.Ink" CommandParameter="ink" Click="ThemeMenuItem_Click"/>
+                    <MenuItem Header="Blue" Tag="Action.Blue" CommandParameter="blue" Click="ThemeMenuItem_Click"/>
+                    <MenuItem Header="Green" Tag="Action.Green" CommandParameter="green" Click="ThemeMenuItem_Click"/>
+                    <MenuItem Header="Plum" Tag="Action.Plum" CommandParameter="plum" Click="ThemeMenuItem_Click"/>
+                    <MenuItem Header="Amber" Tag="Action.Amber" CommandParameter="amber" Click="ThemeMenuItem_Click"/>
                 </MenuItem>
                 <MenuItem Header="Refresh" Tag="Action.Refresh" Click="RefreshMenuItem_Click"/>
-                <MenuItem Header="Open source Markdown" Tag="Action.OpenSource" Click="OpenButton_Click"/>
+                <MenuItem Header="Open source Markdown file" Tag="Action.OpenSource" Click="OpenButton_Click"/>
                 <MenuItem Header="Close this window" Tag="Action.CloseWindow" Click="CloseButton_Click"/>
             </ContextMenu>
         </Border.ContextMenu>
@@ -115,19 +115,19 @@
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                             <Button x:Name="LockButton" Click="LockButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="13"/>
-                            <Button Content="..." Click="ColumnMenuButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16" ToolTip="Column menu">
+                            <Button x:Name="ColumnMenuButton" Content="..." Click="ColumnMenuButton_Click" Style="{StaticResource ToolButtonStyle}" FontSize="16" ToolTip="Board actions">
                                 <Button.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Refresh" Tag="Action.Refresh" Click="RefreshMenuItem_Click"/>
-                                        <MenuItem Header="Open source Markdown" Tag="Action.OpenSource" Click="OpenButton_Click"/>
+                                        <MenuItem Header="Open source Markdown file" Tag="Action.OpenSource" Click="OpenButton_Click"/>
                                         <MenuItem Header="Configure boards" Tag="Action.ConfigureBoards" Click="ConfigureMenuItem_Click"/>
                                         <Separator/>
                                         <MenuItem Header="Appearance" Tag="Action.Theme">
-                                            <MenuItem Header="Ink" Tag="ink" Click="ThemeMenuItem_Click"/>
-                                            <MenuItem Header="Blue" Tag="blue" Click="ThemeMenuItem_Click"/>
-                                            <MenuItem Header="Green" Tag="green" Click="ThemeMenuItem_Click"/>
-                                            <MenuItem Header="Plum" Tag="plum" Click="ThemeMenuItem_Click"/>
-                                            <MenuItem Header="Amber" Tag="amber" Click="ThemeMenuItem_Click"/>
+                                            <MenuItem Header="Ink" Tag="Action.Ink" CommandParameter="ink" Click="ThemeMenuItem_Click"/>
+                                            <MenuItem Header="Blue" Tag="Action.Blue" CommandParameter="blue" Click="ThemeMenuItem_Click"/>
+                                            <MenuItem Header="Green" Tag="Action.Green" CommandParameter="green" Click="ThemeMenuItem_Click"/>
+                                            <MenuItem Header="Plum" Tag="Action.Plum" CommandParameter="plum" Click="ThemeMenuItem_Click"/>
+                                            <MenuItem Header="Amber" Tag="Action.Amber" CommandParameter="amber" Click="ThemeMenuItem_Click"/>
                                         </MenuItem>
                                         <MenuItem Header="Window mode" Tag="Action.WindowMode">
                                             <MenuItem Header="Always on top" Tag="Action.Topmost" Click="TopmostMenuItem_Click"/>
@@ -160,7 +160,8 @@
                         <StackPanel x:Name="TasksPanel"/>
                     </ScrollViewer>
 
-                    <Button Grid.Row="3"
+                    <Button x:Name="AddCardButton"
+                            Grid.Row="3"
                             Content="+ Add card"
                             Tag="Action.AddCard"
                             Click="AddButton_Click"

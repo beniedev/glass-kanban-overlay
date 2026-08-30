@@ -25,6 +25,7 @@ dotnet publish (Join-Path $root "DesktopOverlayBoard.csproj") `
 Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $publishDir "LICENSE")
 Copy-Item -LiteralPath (Join-Path $root "NOTICE.md") -Destination (Join-Path $publishDir "NOTICE.md")
 Copy-Item -LiteralPath (Join-Path $root "README.md") -Destination (Join-Path $publishDir "README.md")
+Copy-Item -LiteralPath (Join-Path $root "README.zh-CN.md") -Destination (Join-Path $publishDir "README.zh-CN.md")
 
 if (Test-Path -LiteralPath (Join-Path $publishDir "Data\config.json")) {
     throw "Refusing to package local configuration: $(Join-Path $publishDir 'Data\config.json')"

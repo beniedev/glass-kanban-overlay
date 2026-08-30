@@ -34,6 +34,7 @@ public partial class SettingsWindow : Window
         _launchAction = launchAction;
         LocalizationService.Use(_config.UiLanguage);
         LocalizationService.ApplyTo(this);
+        CloseButton.ToolTip = T("ToolTip.Close");
         TextInputService.EnableIme(DisplayNameBox);
         TextInputService.EnableIme(VaultNameBox);
         TextInputService.EnableIme(PathBox);

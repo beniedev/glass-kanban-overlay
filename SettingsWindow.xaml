@@ -132,7 +132,8 @@
                                FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
                 </StackPanel>
-                <Button Grid.Column="1"
+                <Button x:Name="CloseButton"
+                        Grid.Column="1"
                         Content="x"
                         Click="CloseButton_Click"
                         Style="{StaticResource ToolButtonStyle}"
