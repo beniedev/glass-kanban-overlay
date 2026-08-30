@@ -66,11 +66,11 @@ This is an agent-assisted portable source build, not an installer or automatic u
 
 ## Project status
 
-**Pre-release — awaiting maintainer acceptance.**
+**Release candidate — hands-on maintainer testing is complete; final approval to make the repository public is pending.**
 
-The current source builds cleanly and its service-level regression suite passes. Neutral Windows UI checks cover board creation, adding an existing board, card actions, missing-column recovery, external-edit conflicts, single-instance activation, window recovery, and the current toolbar/menu layout.
+The source builds cleanly and its service-level regression suite passes. The maintainer has exercised board creation, adding and removing boards, card actions, summary and split widgets, settings, and the current toolbar/menu layout on a real Windows desktop. Neutral UI checks also cover missing-column recovery, external-edit conflicts, single-instance activation, and window recovery.
 
-Manual acceptance is still required for Microsoft Pinyin candidate-selection Enter behavior and a real multi-display topology. No binary release has been published. The GitHub workflow verifies build and service-level tests; it does not verify desktop UI behavior.
+The GitHub workflow verifies the build and service-level tests. Desktop UI behavior, IME-specific behavior, and different monitor topologies remain environment-dependent manual compatibility checks. No binary release has been published. The repository remains private until the maintainer explicitly approves the visibility change.
 
 ## What you can do
 
