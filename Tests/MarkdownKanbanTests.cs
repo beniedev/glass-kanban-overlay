@@ -23,6 +23,14 @@ internal static class MarkdownKanbanTests
         TestMultilineTaskRefusal(service, root);
         TestLockedFileFailure(service, root);
         TestBlockedArchivePath();
+        TestConflictPolicyBoundaries(service, root);
+        TestWriteMutexBusy(service, root);
+        TestWriteMutexAbandoned(service, root);
+        TestExistingDocumentReadFailures(service, root);
+        TestExistingDocumentPublishFailures(service, root);
+        TestBlockedWriteEntryPoints(service, root);
+        TestTaskWriteLineEndings(service, root);
+        TestTransactionFailureAndSourceLifetime(service, root);
     }
 
     private static void TestParseDefaults(MarkdownKanbanService service, string root)
@@ -348,5 +356,341 @@ internal static class MarkdownKanbanTests
     {
         Assert(MarkdownKanbanService.IsBlockedPath(@"C:\ExampleVaults\Vault\归档\Kanban.md"), "归档 path should be blocked");
         Assert(MarkdownKanbanService.IsBlockedPath(@"C:\ExampleVaults\Vault\backup\Kanban.md"), "backup path should be blocked");
+    }
+
+    private static void TestConflictPolicyBoundaries(MarkdownKanbanService service, string root)
+    {
+        var path = Path.Combine(root, "transaction-conflicts.md");
+        const string content = "## BEFORE\n\n- [ ] earlier\n\n## TODO\n\n- [ ] target ^target-id\n\n## AFTER\n\n- [ ] later\n";
+        File.WriteAllText(path, content);
+        var board = BoardFor(path);
+        var task = service.LoadGroup(board, incompleteOnly: false).Tasks.Single();
+        var before = File.ReadAllBytes(path);
+
+        var staleLine = task with { OriginalLine = "- [ ] different original line" };
+        AssertRejectedUnchanged(path, before, service.ToggleTask(staleLine, done: true),
+            LocalizationService.Text("Error.SourceChanged"), "OriginalLine mismatch");
+        AssertRejectedUnchanged(path, before, service.ToggleTask(staleLine with { ColumnRangeHash = "stale" }, done: true),
+            LocalizationService.Text("Error.ColumnChanged"), "column hash must be checked before OriginalLine");
+        AssertRejectedUnchanged(path, before, service.ToggleTask(staleLine with { ColumnTitle = "Missing", ColumnRangeHash = "stale" }, done: true),
+            LocalizationService.Text("Error.ColumnMissing", "Missing"), "missing column must be checked before column hash");
+
+        File.WriteAllText(path, content.Replace("- [ ] earlier", "- [ ] earlier\n\n- [ ] inserted before", StringComparison.Ordinal));
+        Assert(service.LoadGroup(board, incompleteOnly: false).ColumnRangeHash == task.ColumnRangeHash,
+            "a preceding column edit must retain the target column hash");
+        before = File.ReadAllBytes(path);
+        AssertRejectedUnchanged(path, before, service.ToggleTask(task, done: true),
+            LocalizationService.Text("Error.SourceChanged"), "shifted LineIndex must be protected by OriginalLine");
+
+        File.WriteAllText(path, content);
+        task = service.LoadGroup(board, incompleteOnly: false).Tasks.Single();
+        const string external = "\n- [ ] external after\n";
+        File.AppendAllText(path, external);
+        Assert(service.LoadGroup(board, incompleteOnly: false).ColumnRangeHash == task.ColumnRangeHash,
+            "a following column edit must retain the target column hash");
+        Assert(service.ToggleTask(task, done: true).Success, "unrelated following-column edit must not be treated as a full-document conflict");
+        Assert(File.ReadAllText(path) == (content + external).Replace("- [ ] target ^target-id", "- [x] target ^target-id", StringComparison.Ordinal),
+            "column-scoped writing must preserve the unrelated edit");
+
+        var oldHash = service.Parse(path).FullHash;
+        File.AppendAllText(path, "\n## DOING\n");
+        before = File.ReadAllBytes(path);
+        AssertRejectedUnchanged(path, before, service.CreateMissingColumn(path, "DOING", oldHash),
+            LocalizationService.Text("Error.SourceChanged"), "full-document hash must be checked before an already-existing column");
+        AssertRejectedUnchanged(path, before, service.CreateMissingColumn(path, "doing", service.Parse(path).FullHash),
+            LocalizationService.Text("Error.ColumnAlreadyExists", "doing"), "existing columns must be found case-insensitively");
+        AssertMutexAvailableFromOtherThread(path);
+    }
+
+    private static void TestWriteMutexBusy(MarkdownKanbanService service, string root)
+    {
+        var path = Path.Combine(root, "transaction-busy.md");
+        File.WriteAllText(path, "## TODO\n\n- [ ] original\n");
+        var task = service.LoadGroup(BoardFor(path), incompleteOnly: false).Tasks.Single();
+        var hash = service.Parse(path).FullHash;
+        var before = File.ReadAllBytes(path);
+        using var mutex = MarkdownWriteTransaction.CreateMutex(path);
+        using var acquired = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        Exception? ownerError = null;
+        var owner = new Thread(() =>
+        {
+            var lockTaken = false;
+            try
+            {
+                lockTaken = mutex.WaitOne(TestTimeout);
+                if (!lockTaken) throw new TimeoutException("synthetic mutex owner could not acquire the lock");
+                acquired.Set();
+                if (!release.Wait(TestTimeout)) throw new TimeoutException("synthetic mutex owner was not released");
+            }
+            catch (Exception ex)
+            {
+                ownerError = ex;
+                acquired.Set();
+            }
+            finally
+            {
+                if (lockTaken) mutex.ReleaseMutex();
+            }
+        }) { IsBackground = true };
+        owner.Start();
+        try
+        {
+            Assert(acquired.Wait(TestTimeout), "synthetic mutex owner must signal acquisition");
+            Assert(ownerError is null, $"synthetic mutex owner failed: {ownerError}");
+            var busy = LocalizationService.Text("Error.WriteBusy");
+            AssertRejectedUnchanged(path, before, service.ToggleTask(task, done: true), busy, "busy task write");
+            AssertRejectedUnchanged(path, before, service.CreateMissingColumn(path, "DOING", hash), busy, "busy missing-column write");
+            AssertRejectedUnchanged(path, before, service.CreateBoardFile(path, KanbanBoardTemplate.TodoDone), busy,
+                "CreateNew must retain its mutex-before-existing-file check");
+        }
+        finally
+        {
+            release.Set();
+            Assert(owner.Join(TestTimeout), "synthetic mutex owner must terminate");
+        }
+
+        Assert(ownerError is null, $"synthetic mutex owner failed: {ownerError}");
+        Assert(service.ToggleTask(task, done: true).Success, "a released busy mutex must permit a subsequent task write");
+        Assert(service.CreateMissingColumn(path, "DOING", service.Parse(path).FullHash).Success,
+            "a released busy mutex must permit a subsequent missing-column write");
+        AssertMutexAvailableFromOtherThread(path);
+    }
+
+    private static void TestWriteMutexAbandoned(MarkdownKanbanService service, string root)
+    {
+        foreach (var operation in new[] { "task", "column", "new-board" })
+        {
+            var path = Path.Combine(root, $"transaction-abandoned-{operation}.md");
+            KanbanTask? task = null;
+            var hash = "";
+            if (operation != "new-board")
+            {
+                File.WriteAllText(path, "## TODO\n\n- [ ] original\n");
+                task = service.LoadGroup(BoardFor(path), incompleteOnly: false).Tasks.Single();
+                hash = service.Parse(path).FullHash;
+            }
+
+            // Keep this handle alive while its owning thread exits without releasing.
+            using var mutex = MarkdownWriteTransaction.CreateMutex(path);
+            Exception? ownerError = null;
+            var owner = new Thread(() =>
+            {
+                try
+                {
+                    if (!mutex.WaitOne(TestTimeout)) throw new TimeoutException("synthetic abandoned owner could not acquire the lock");
+                }
+                catch (Exception ex)
+                {
+                    ownerError = ex;
+                }
+            }) { IsBackground = true };
+            owner.Start();
+            Assert(owner.Join(TestTimeout), "synthetic abandoned owner must terminate");
+            Assert(ownerError is null, $"synthetic abandoned owner failed: {ownerError}");
+
+            var result = operation switch
+            {
+                "task" => service.ToggleTask(task!, done: true),
+                "column" => service.CreateMissingColumn(path, "DOING", hash),
+                _ => service.CreateBoardFile(path, KanbanBoardTemplate.TodoDone),
+            };
+            Assert(result.Success, $"{operation} must recover an abandoned mutex: {result.Error}");
+            AssertMutexAvailableFromOtherThread(path);
+        }
+    }
+
+    private static void TestExistingDocumentReadFailures(MarkdownKanbanService service, string root)
+    {
+        var path = Path.Combine(root, "transaction-read-failure.md");
+        File.WriteAllText(path, "## TODO\n\n- [ ] original\n");
+        var task = service.LoadGroup(BoardFor(path), incompleteOnly: false).Tasks.Single();
+        var hash = service.Parse(path).FullHash;
+        var before = File.ReadAllBytes(path);
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            AssertWriteFailure(service.ToggleTask(task, done: true), "locked task read");
+            AssertWriteFailure(service.CreateMissingColumn(path, "DOING", hash), "locked missing-column read");
+            AssertMutexAvailableFromOtherThread(path);
+        }
+
+        Assert(File.ReadAllBytes(path).SequenceEqual(before), "read failures must preserve original bytes");
+        AssertNoTransactionTempFiles(path);
+        var missingPath = Path.Combine(root, "transaction-nonexistent.md");
+        AssertWriteFailure(service.ToggleTask(task with { FilePath = missingPath }, done: true), "missing task source");
+        AssertWriteFailure(service.CreateMissingColumn(missingPath, "DOING", hash), "missing column source");
+        Assert(!File.Exists(missingPath), "existing-document writes must never create a missing source");
+        AssertNoTransactionTempFiles(missingPath);
+        AssertMutexAvailableFromOtherThread(missingPath);
+    }
+
+    private static void TestExistingDocumentPublishFailures(MarkdownKanbanService service, string root)
+    {
+        var path = Path.Combine(root, "transaction-publish-failure.md");
+        File.WriteAllText(path, "## TODO\n\n- [ ] original\n");
+        var task = service.LoadGroup(BoardFor(path), incompleteOnly: false).Tasks.Single();
+        var hash = service.Parse(path).FullHash;
+        var before = File.ReadAllBytes(path);
+        // Reading remains possible; this handle prevents File.Replace from publishing.
+        using var cannotReplace = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        AssertWriteFailure(service.ToggleTask(task, done: true), "task publish blocked by a reader without delete sharing");
+        Assert(File.ReadAllBytes(path).SequenceEqual(before), "failed task publication must preserve original bytes");
+        AssertNoTransactionTempFiles(path);
+        AssertMutexAvailableFromOtherThread(path);
+        AssertWriteFailure(service.CreateMissingColumn(path, "DOING", hash), "missing-column publish blocked by a reader without delete sharing");
+        Assert(File.ReadAllBytes(path).SequenceEqual(before), "failed missing-column publication must preserve original bytes");
+        AssertNoTransactionTempFiles(path);
+        AssertMutexAvailableFromOtherThread(path);
+    }
+
+    private static void TestBlockedWriteEntryPoints(MarkdownKanbanService service, string root)
+    {
+        var directory = Path.Combine(root, "backup");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "blocked-existing.md");
+        File.WriteAllText(path, "## TODO\n\n- [ ] original\n");
+        var board = BoardFor(path);
+        var group = service.LoadGroup(board, incompleteOnly: false);
+        var before = File.ReadAllBytes(path);
+        var blocked = LocalizationService.Text("Error.BlockedWritePath");
+        AssertRejectedUnchanged(path, before, service.ToggleTask(group.Tasks.Single(), done: true), blocked, "blocked task write");
+        AssertRejectedUnchanged(path, before, service.AddTask(board, "TODO", group.ColumnRangeHash, "added"), blocked, "blocked add");
+        AssertRejectedUnchanged(path, before, service.CreateMissingColumn(path, "DOING", service.Parse(path).FullHash), blocked, "blocked missing-column write");
+        AssertRejectedUnchanged(path, before, service.CreateMissingColumn(path, "invalid\ncolumn", ""),
+            LocalizationService.Text("Error.InvalidColumn"), "column input validation must precede blocked-path validation");
+        AssertRejectedUnchanged(path, before, service.CreateMissingColumn(path, "DOING", ""),
+            LocalizationService.Text("Error.SourceChanged"), "missing document hash must precede blocked-path validation");
+        AssertNoTransactionTempFiles(path);
+    }
+
+    private static void TestTaskWriteLineEndings(MarkdownKanbanService service, string root)
+    {
+        foreach (var newLine in new[] { "\n", "\r\n" })
+        foreach (var finalNewLine in new[] { false, true })
+        {
+            var path = Path.Combine(root, $"transaction-format-{newLine.Length}-{finalNewLine}.md");
+            var content = string.Join(newLine, new[]
+            {
+                "---", "kanban-plugin: board", "---", "", "Intro paragraph.", "", "## TODO", "",
+                "- [ ] first ^first-id", "", "***", "", "## Archive", "", "- [x] old ^old-id", "",
+                "%% kanban:settings", "```", "{\"kanban-plugin\":\"board\"}", "```", "%%",
+            }) + (finalNewLine ? newLine : "");
+            File.WriteAllText(path, content, new System.Text.UTF8Encoding(false));
+            var board = BoardFor(path);
+            var task = service.LoadGroup(board, incompleteOnly: false).Tasks.Single();
+            Assert(service.ToggleTask(task, done: true).Success, "formatted task toggle must succeed");
+            var expected = content.Replace("- [ ] first ^first-id", "- [x] first ^first-id", StringComparison.Ordinal);
+            Assert(File.ReadAllBytes(path).SequenceEqual(System.Text.Encoding.UTF8.GetBytes(expected)),
+                "toggle must preserve line endings, EOF, frontmatter, paragraphs, archive, settings and block IDs byte-for-byte");
+            task = service.LoadGroup(board, incompleteOnly: false).Tasks.Single();
+            Assert(service.RenameTask(task, "renamed").Success, "formatted task rename must succeed");
+            expected = expected.Replace("- [x] first ^first-id", "- [x] renamed ^first-id", StringComparison.Ordinal);
+            Assert(File.ReadAllBytes(path).SequenceEqual(System.Text.Encoding.UTF8.GetBytes(expected)),
+                "rename must preserve all bytes outside the edited text");
+        }
+    }
+
+    private static void TestTransactionFailureAndSourceLifetime(MarkdownKanbanService service, string root)
+    {
+        var path = Path.Combine(root, "transaction-shell.md");
+        const string content = "## TODO\n\n- [ ] original\n";
+        File.WriteAllText(path, content);
+        var before = File.ReadAllBytes(path);
+        var document = service.Parse(path);
+        var operationCalled = false;
+        var parseFailure = MarkdownWriteTransaction.Execute(path, "Synthetic parse failure",
+            _ => throw new IOException("synthetic parse failure"),
+            _ => { operationCalled = true; return KanbanWriteResult.Ok(); });
+        AssertRejectedUnchanged(path, before, parseFailure, LocalizationService.Text("Error.WriteFailed", "synthetic parse failure"), "parse failure");
+        Assert(!operationCalled, "a failed parse must never enter the operation");
+        AssertMutexAvailableFromOtherThread(path);
+
+        var operationFailure = MarkdownWriteTransaction.Execute(path, "Synthetic operation failure",
+            _ => document, _ => throw new IOException("synthetic operation failure"));
+        AssertRejectedUnchanged(path, before, operationFailure, LocalizationService.Text("Error.WriteFailed", "synthetic operation failure"), "operation exception");
+        AssertMutexAvailableFromOtherThread(path);
+
+        var rejected = KanbanWriteResult.Fail("synthetic operation rejection");
+        var result = MarkdownWriteTransaction.Execute(path, "Synthetic handle lifetime",
+            text => { Assert(text == content, "the parser must receive the complete raw source"); return document; },
+            parsed =>
+            {
+                Assert(ReferenceEquals(parsed, document), "the operation must receive the parser's document");
+                try
+                {
+                    using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                    throw new InvalidOperationException("source handle closed before the operation");
+                }
+                catch (IOException)
+                {
+                    return rejected;
+                }
+            });
+        Assert(ReferenceEquals(result, rejected), "an operation rejection must be returned unchanged");
+        Assert(File.ReadAllBytes(path).SequenceEqual(before), "operation rejection must preserve original bytes");
+        using (var after = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None)) { }
+        AssertNoTransactionTempFiles(path);
+        AssertMutexAvailableFromOtherThread(path);
+    }
+
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
+
+    private static BoardConfig BoardFor(string path) => new()
+    {
+        DisplayName = "Synthetic board",
+        VaultName = "Tests",
+        FilePath = path,
+        DefaultColumn = "TODO",
+    };
+
+    private static void AssertRejectedUnchanged(string path, byte[] before, KanbanWriteResult result, string error, string context)
+    {
+        Assert(!result.Success && result.Error == error, $"{context} must return the expected failure: {result.Error}");
+        Assert(File.ReadAllBytes(path).SequenceEqual(before), $"{context} must preserve original bytes");
+    }
+
+    private static void AssertWriteFailure(KanbanWriteResult result, string context)
+    {
+        Assert(!result.Success && result.Error is not null &&
+            result.Error.StartsWith(LocalizationService.Text("Error.WriteFailed", ""), StringComparison.Ordinal),
+            $"{context} must return a write failure: {result.Error}");
+    }
+
+    private static void AssertNoTransactionTempFiles(string path)
+    {
+        Assert(!Directory.EnumerateFiles(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.overlay-*.tmp").Any(),
+            "a completed or rejected write must not leave a transaction temporary file");
+    }
+
+    private static void AssertMutexAvailableFromOtherThread(string path)
+    {
+        var available = false;
+        Exception? error = null;
+        var observer = new Thread(() =>
+        {
+            using var mutex = MarkdownWriteTransaction.CreateMutex(path);
+            var lockTaken = false;
+            try
+            {
+                lockTaken = mutex.WaitOne(0);
+                available = lockTaken;
+            }
+            catch (AbandonedMutexException ex)
+            {
+                lockTaken = true;
+                error = ex;
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+            finally
+            {
+                if (lockTaken) mutex.ReleaseMutex();
+            }
+        }) { IsBackground = true };
+        observer.Start();
+        Assert(observer.Join(TestTimeout), "mutex observer must terminate");
+        Assert(error is null && available, $"the transaction must release its mutex for another thread: {error}");
     }
 }

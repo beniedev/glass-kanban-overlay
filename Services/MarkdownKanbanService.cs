@@ -91,7 +91,7 @@ public sealed partial class MarkdownKanbanService
 
         var columns = GetTemplateColumns(template);
         var body = BuildBoardTemplate(columns, Environment.NewLine);
-        using var writeMutex = CreateWriteMutex(fullPath);
+        using var writeMutex = MarkdownWriteTransaction.CreateMutex(fullPath);
         var lockTaken = false;
         string? temp = null;
         try
@@ -440,58 +440,27 @@ public sealed partial class MarkdownKanbanService
             return KanbanWriteResult.Fail(T("Error.BlockedWritePath"));
         }
 
-        using var writeMutex = CreateWriteMutex(filePath);
-        var lockTaken = false;
-        try
-        {
-            try
+        return MarkdownWriteTransaction.Execute(
+            filePath,
+            $"Create missing column failed: {filePath}",
+            text => ParseText(filePath, text),
+            document =>
             {
-                lockTaken = writeMutex.WaitOne(0);
-            }
-            catch (AbandonedMutexException)
-            {
-                lockTaken = true;
-            }
+                if (!string.Equals(document.FullHash, expectedDocumentHash, StringComparison.Ordinal))
+                {
+                    return KanbanWriteResult.Fail(T("Error.SourceChanged"));
+                }
 
-            if (!lockTaken)
-            {
-                return KanbanWriteResult.Fail(T("Error.WriteBusy"));
-            }
+                if (FindColumn(document, columnTitle) is not null)
+                {
+                    return KanbanWriteResult.Fail(T("Error.ColumnAlreadyExists", columnTitle));
+                }
 
-            using var source = new FileStream(
-                filePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read | FileShare.Delete);
-            using var reader = new StreamReader(source, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
-            var document = ParseText(filePath, reader.ReadToEnd());
-            if (!string.Equals(document.FullHash, expectedDocumentHash, StringComparison.Ordinal))
-            {
-                return KanbanWriteResult.Fail(T("Error.SourceChanged"));
-            }
-
-            if (FindColumn(document, columnTitle) is not null)
-            {
-                return KanbanWriteResult.Fail(T("Error.ColumnAlreadyExists", columnTitle));
-            }
-
-            var lines = document.Lines.ToList();
-            InsertMissingColumn(lines, columnTitle, document.EndsWithNewLine);
-            SaveLines(filePath, lines, document.NewLine, document.EndsWithNewLine);
-            return KanbanWriteResult.Ok();
-        }
-        catch (Exception ex)
-        {
-            LogService.Error(ex, $"Create missing column failed: {filePath}");
-            return KanbanWriteResult.Fail(T("Error.WriteFailed", ex.Message));
-        }
-        finally
-        {
-            if (lockTaken)
-            {
-                writeMutex.ReleaseMutex();
-            }
-        }
+                var lines = document.Lines.ToList();
+                InsertMissingColumn(lines, columnTitle, document.EndsWithNewLine);
+                SaveLines(filePath, lines, document.NewLine, document.EndsWithNewLine);
+                return KanbanWriteResult.Ok();
+            });
     }
 
     public void OpenSource(string filePath)
@@ -533,64 +502,33 @@ public sealed partial class MarkdownKanbanService
             return KanbanWriteResult.Fail(T("Error.BlockedWritePath"));
         }
 
-        using var writeMutex = CreateWriteMutex(filePath);
-        var lockTaken = false;
-        try
-        {
-            try
+        return MarkdownWriteTransaction.Execute(
+            filePath,
+            $"Write board failed: {filePath}",
+            text => ParseText(filePath, text),
+            document =>
             {
-                lockTaken = writeMutex.WaitOne(0);
-            }
-            catch (AbandonedMutexException)
-            {
-                lockTaken = true;
-            }
+                var column = FindColumn(document, columnTitle);
+                if (column is null)
+                {
+                    return KanbanWriteResult.Fail(T("Error.ColumnMissing", columnTitle));
+                }
 
-            if (!lockTaken)
-            {
-                return KanbanWriteResult.Fail(T("Error.WriteBusy"));
-            }
+                if (!string.Equals(column.RangeHash, expectedColumnHash, StringComparison.Ordinal))
+                {
+                    return KanbanWriteResult.Fail(T("Error.ColumnChanged"));
+                }
 
-            using var source = new FileStream(
-                filePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read | FileShare.Delete);
-            using var reader = new StreamReader(source, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
-            var document = ParseText(filePath, reader.ReadToEnd());
-            var column = FindColumn(document, columnTitle);
-            if (column is null)
-            {
-                return KanbanWriteResult.Fail(T("Error.ColumnMissing", columnTitle));
-            }
+                var lines = document.Lines.ToList();
+                var result = mutate(lines);
+                if (!result.Success)
+                {
+                    return result;
+                }
 
-            if (!string.Equals(column.RangeHash, expectedColumnHash, StringComparison.Ordinal))
-            {
-                return KanbanWriteResult.Fail(T("Error.ColumnChanged"));
-            }
-
-            var lines = document.Lines.ToList();
-            var result = mutate(lines);
-            if (!result.Success)
-            {
-                return result;
-            }
-
-            SaveLines(filePath, lines, document.NewLine, document.EndsWithNewLine);
-            return KanbanWriteResult.Ok();
-        }
-        catch (Exception ex)
-        {
-            LogService.Error(ex, $"Write board failed: {filePath}");
-            return KanbanWriteResult.Fail(T("Error.WriteFailed", ex.Message));
-        }
-        finally
-        {
-            if (lockTaken)
-            {
-                writeMutex.ReleaseMutex();
-            }
-        }
+                SaveLines(filePath, lines, document.NewLine, document.EndsWithNewLine);
+                return KanbanWriteResult.Ok();
+            });
     }
 
     private KanbanDocument BuildDocumentFromLines(string filePath, IReadOnlyList<string> lines)
@@ -673,13 +611,6 @@ public sealed partial class MarkdownKanbanService
         lines.Add("```");
         lines.Add("%%");
         return string.Join(newLine, lines) + newLine;
-    }
-
-    private static Mutex CreateWriteMutex(string filePath)
-    {
-        var normalized = Path.GetFullPath(filePath).ToUpperInvariant();
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
-        return new Mutex(initiallyOwned: false, $@"Local\GlassKanbanOverlay-{hash}");
     }
 
     private static bool ContainsLineBreak(string text)
