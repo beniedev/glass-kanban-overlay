@@ -1,29 +1,68 @@
 namespace DesktopOverlayBoard.Services;
 
-public static class AppPaths
+/// <summary>Paths captured at composition time, independent of later environment or CWD changes.</summary>
+public sealed record ResolvedAppPaths
 {
-    public static string RootDirectory
+    internal ResolvedAppPaths(string rootDirectory)
     {
-        get
-        {
-            var configuredHome = Environment.GetEnvironmentVariable("GLASS_KANBAN_OVERLAY_HOME");
-            if (!string.IsNullOrWhiteSpace(configuredHome) && Directory.Exists(configuredHome))
-            {
-                return configuredHome;
-            }
-
-            var currentDirectory = Directory.GetCurrentDirectory();
-            if (File.Exists(Path.Combine(currentDirectory, "DesktopOverlayBoard.csproj")) ||
-                Directory.Exists(Path.Combine(currentDirectory, "Data")))
-            {
-                return currentDirectory;
-            }
-
-            return AppContext.BaseDirectory;
-        }
+        RootDirectory = rootDirectory;
+        DataDirectory = Path.Combine(rootDirectory, "Data");
+        LogDirectory = Path.Combine(rootDirectory, "Log");
+        ConfigPath = Path.Combine(DataDirectory, "config.json");
     }
 
-    public static string DataDirectory => Path.Combine(RootDirectory, "Data");
-    public static string LogDirectory => Path.Combine(RootDirectory, "Log");
-    public static string ConfigPath => Path.Combine(DataDirectory, "config.json");
+    public string RootDirectory { get; }
+    public string DataDirectory { get; }
+    public string LogDirectory { get; }
+    public string ConfigPath { get; }
+}
+
+public static class AppPaths
+{
+    // Transitional compatibility until application composition passes explicit paths to every consumer.
+    private static readonly Lazy<ResolvedAppPaths> DefaultPaths = new(ResolveDefault);
+    public static ResolvedAppPaths Current => DefaultPaths.Value;
+    public static string RootDirectory => Current.RootDirectory;
+    public static string DataDirectory => Current.DataDirectory;
+    public static string LogDirectory => Current.LogDirectory;
+    public static string ConfigPath => Current.ConfigPath;
+
+    public static ResolvedAppPaths FromRoot(string rootDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+        if (!Path.IsPathFullyQualified(rootDirectory))
+        {
+            throw new ArgumentException("An explicit absolute application root is required.", nameof(rootDirectory));
+        }
+        return new ResolvedAppPaths(Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory)));
+    }
+
+    public static ResolvedAppPaths ResolveDefault() => Resolve(
+        Environment.GetEnvironmentVariable("GLASS_KANBAN_OVERLAY_HOME"),
+        Directory.GetCurrentDirectory(),
+        AppContext.BaseDirectory);
+
+    public static ResolvedAppPaths Resolve(string? configuredHome, string currentDirectory, string baseDirectory)
+    {
+        var current = FromRoot(currentDirectory);
+        if (!string.IsNullOrWhiteSpace(configuredHome))
+        {
+            try
+            {
+                var home = Path.GetFullPath(configuredHome, current.RootDirectory);
+                if (Directory.Exists(home)) return FromRoot(home);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // Directory.Exists previously rejected invalid home values and fell back to CWD/base.
+            }
+        }
+
+        if (File.Exists(Path.Combine(current.RootDirectory, "DesktopOverlayBoard.csproj")) ||
+            Directory.Exists(current.DataDirectory))
+        {
+            return current;
+        }
+        return FromRoot(baseDirectory);
+    }
 }

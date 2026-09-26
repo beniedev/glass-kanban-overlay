@@ -170,3 +170,8 @@ Validation:
 
 - Extracted missing-column recovery into an explicitly injected workflow shared by both windows; settings callbacks are passed directly to the split window.
 - Shared widget helpers preserve window-local resources, glass opacity, button construction, drag hit testing, and movement thresholds.
+
+## Modularization: Configuration foundation
+
+- Configuration services capture explicit paths, share a pure normalizer, and publish configuration via a temporary file and atomic replacement.
+- Retained transitional default-path and parameterless configuration entry points for existing window/application callers. Tests use fixed synthetic paths and explicit log initialization.

@@ -42,6 +42,8 @@ internal static class TestRunner
             var syntheticHome = Path.Combine(tempRoot, "synthetic-home");
             Directory.CreateDirectory(syntheticHome);
             Environment.SetEnvironmentVariable("GLASS_KANBAN_OVERLAY_HOME", syntheticHome);
+            DesktopOverlayBoard.Services.LogService.Initialize(
+                DesktopOverlayBoard.Services.AppPaths.FromRoot(syntheticHome));
 
             foreach (var group in selected)
             {
