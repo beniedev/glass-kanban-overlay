@@ -159,3 +159,9 @@ Validation:
  - Note: publish against the repo root (with `DesktopOverlayBoard.sln`) also pulls in the Tests project and writes `DesktopOverlayBoard.Tests.*` into `dist`; publish the csproj instead to keep `dist` clean:
    `dotnet publish DesktopOverlayBoard.csproj -c Release -r win-x64 --self-contained false -o dist`
 - Removed stray `DesktopOverlayBoard.Tests.*` files that the solution-level publish had written into `dist`.
+
+## Modularization: Grouped verification and release packaging
+
+- Moved the original 21 executable checks into Markdown (13), configuration (3), window state (3), and runtime (2) groups, with a shared assertion helper and group selection.
+- Portable packaging stops immediately on failed build, test, or publish and refuses existing output targets. Its eight packaging scenarios use a synthetic dotnet command.
+- Added a versioned WPF smoke using only a framework Application and synthetic board/configuration data; it renders both windows without invoking product startup or registry operations.
