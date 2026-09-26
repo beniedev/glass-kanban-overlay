@@ -60,11 +60,11 @@ The release archive is self-contained for Windows x64. It does not require the .
 
 ## Project status
 
-**v0.2.0 — first public Windows x64 portable release.**
+**Latest packaged release: [v0.2.0](https://github.com/beniedev/glass-kanban-overlay/releases/tag/v0.2.0).** It is a self-contained Windows x64 portable archive; the executable is not code-signed.
 
-The source builds cleanly and its service-level regression suite passes. The maintainer has exercised board creation, adding and removing boards, card actions, summary and split widgets, settings, and the current toolbar/menu layout on a real Windows desktop. Neutral UI checks also cover missing-column recovery, external-edit conflicts, single-instance activation, and window recovery.
+**Current `main` includes later improvements that are not in that archive:** atomic configuration saving, clearer settings failure handling, refreshes that preserve active card drafts, and layout fixes that retain live window size/opacity and correctly save case-insensitive layout keys. Build from source to use these changes until a newer package is released. This README describes current `main`; the v0.2.0 archive includes its own version of the README.
 
-The GitHub workflow verifies the build and service-level tests. The v0.2.0 release provides a self-contained Windows x64 portable archive. Desktop UI behavior, IME-specific behavior, and different monitor topologies remain environment-dependent manual compatibility checks. The executable is not code-signed.
+Current source validation includes Debug/Release builds, all 12 regression groups, and separate neutral WPF checks for both window types, missing-column views, deferred refresh, draft cancellation, settings callbacks, and layout saving. GitHub CI runs the Release build and regression groups; it does not run the WPF smoke or packaging script. These checks do not establish packaged startup, physical IME input, OS drag behavior, or compatibility with every monitor layout.
 
 ## What you can do
 
@@ -188,11 +188,19 @@ dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj
 
 The runner accepts `-- --list` to list groups and `-- --group config` to run one group. Omitting arguments runs all groups. The optional smoke scripts use PowerShell 7 (`pwsh`). For neutral WPF rendering with synthetic boards, use `pwsh -STA -File .\Tests\scripts\WpfSmoke.ps1 -Configuration Debug` after building that configuration. It saves screenshots under ignored `TestResults` and does not run product startup or change startup registration. Packaging failure cases run separately with `pwsh -File .\Tests\scripts\Test-PortableRelease.ps1`.
 
-Launch from source or an existing local build:
+Build and run the checked-out source:
+
+```powershell
+dotnet run --project .\DesktopOverlayBoard.csproj
+```
+
+The helper launcher is also available:
 
 ```powershell
 .\run-glass-kanban-overlay.ps1
 ```
+
+The helper sets `GLASS_KANBAN_OVERLAY_HOME` to the repository root. It first launches `dist\GlassKanbanOverlay-win-x64-portable\GlassKanbanOverlay.exe`, then `dist\GlassKanbanOverlay.exe`, if either exists; only otherwise does it run the source project. It does not rebuild an existing EXE, so pulling new source alone does not update that EXE. Check the configuration-root rules below before switching launch methods.
 
 Create a fresh self-contained win-x64 portable candidate:
 
@@ -212,11 +220,27 @@ Data\config.json
 
 This file is ignored because it contains machine-specific paths. Use [`Data/config.sample.json`](Data/config.sample.json) for public examples. Tests create temporary neutral board files and do not depend on a maintainer's vault.
 
-Configuration paths are resolved once at startup. Saving uses a temporary file in the same directory and an atomic replacement; a failed write leaves the previous configuration intact. A malformed or unreadable configuration produces a visible startup error and is not overwritten with defaults.
+The application resolves a configuration root once at startup, in this order:
+
+1. `GLASS_KANBAN_OVERLAY_HOME`, when it resolves to an existing directory. A relative value is resolved against the working directory; an invalid or missing directory falls through to the next rule.
+2. The working directory, if it contains `DesktopOverlayBoard.csproj` or a `Data` directory.
+3. The executable's directory.
+
+`Data\config.json` and `Log\` are relative to that root. A shortcut's working directory can therefore select a different configuration from the one beside the EXE. The helper launcher described above uses the repository root.
+
+Saving uses a temporary file in the same directory and an atomic replacement; a failed write leaves the previous configuration intact. A malformed or unreadable configuration produces a visible startup error and is not overwritten with defaults.
 
 Settings are edited as a separate draft. After a successful save, both window types receive the saved configuration before Windows startup registration is applied. If registration fails, the app reports that the configuration was saved but the system setting was not applied. If a new Markdown board was created before configuration saving failed, the file is kept and the dialog identifies it.
 
 Refreshing during card editing preserves the input and waits until editing ends. Settings can still be saved: the dialog reports that refreshing is deferred. If the board, file, or column changes while a draft is open, submitting it is refused; cancel the draft to refresh the view. Read failures remain visible, and late reads cannot replace a newer target or update a closed window.
+
+### Upgrading while keeping your configuration
+
+1. Identify the running EXE and the active configuration root using the rules above. Save any edits, then choose **Exit** from the tray menu; closing the summary window only hides it.
+2. Back up the existing program files and the active `Data\config.json` before replacing anything. Keep the old program available for rollback.
+3. Extract the new package into an empty folder and inspect its contents. After confirming the replacement, update only program files at the existing install location; keep the active `Data` and `Log` directories. Never replace a real configuration with `config.sample.json`. If moving the installation, copy the saved configuration into the newly resolved root before starting it.
+4. Check the desktop shortcut's target and working directory. If Windows startup is enabled, verify its target too: source builds can prefer the portable subfolder under `dist` over a flat `dist` EXE.
+5. Start the updated program and check your selected boards, window layouts, and configuration location. If rollback is needed after using the new version, preserve the current configuration before restoring older program files.
 
 ## Limits
 
