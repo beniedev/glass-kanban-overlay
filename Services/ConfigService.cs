@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using DesktopOverlayBoard.Models;
 
@@ -5,21 +6,50 @@ namespace DesktopOverlayBoard.Services;
 
 public sealed class ConfigService
 {
+    private readonly Action<string, string> _writeTemporary;
+    private readonly Action<string, string, bool> _publishTemporary;
+    public ResolvedAppPaths Paths { get; }
+
+    // Transitional constructor until existing application callers pass explicit paths.
+    public ConfigService() : this(AppPaths.Current) { LogService.Initialize(Paths); }
+
+    public ConfigService(ResolvedAppPaths paths) : this(paths, WriteTemporaryFile, PublishTemporaryFile) { }
+
+    internal ConfigService(ResolvedAppPaths paths,
+        Action<string, string> writeTemporary, Action<string, string, bool> publishTemporary)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(writeTemporary);
+        ArgumentNullException.ThrowIfNull(publishTemporary);
+        Paths = paths;
+        _writeTemporary = writeTemporary;
+        _publishTemporary = publishTemporary;
+    }
+
+    public void Initialize()
+    {
+        Directory.CreateDirectory(Paths.DataDirectory);
+        Directory.CreateDirectory(Paths.LogDirectory);
+    }
+
     public AppConfig Load()
     {
-        Directory.CreateDirectory(AppPaths.DataDirectory);
-        Directory.CreateDirectory(AppPaths.LogDirectory);
-
-        if (!File.Exists(AppPaths.ConfigPath))
+        Initialize();
+        string json;
+        try
+        {
+            json = File.ReadAllText(Paths.ConfigPath);
+        }
+        catch (FileNotFoundException)
         {
             var config = CreateDefault();
             Save(config);
             return config;
         }
 
-        var json = File.ReadAllText(AppPaths.ConfigPath);
+        // JSON null retains the existing default-and-persist behavior; parse/read failures propagate.
         var loaded = JsonSerializer.Deserialize<AppConfig>(json, ConfigJson.Options) ?? CreateDefault();
-        EnsureDefaults(loaded);
+        ConfigNormalizer.Normalize(loaded, NewBoardId);
         Save(loaded);
         return loaded;
     }
@@ -27,18 +57,51 @@ public sealed class ConfigService
     public void Save(AppConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        EnsureDefaults(config);
-        Directory.CreateDirectory(AppPaths.DataDirectory);
+        ConfigNormalizer.Normalize(config, NewBoardId);
         var json = JsonSerializer.Serialize(config, ConfigJson.Options);
-        File.WriteAllText(AppPaths.ConfigPath, json);
+        Directory.CreateDirectory(Paths.DataDirectory);
+        string? temporary = Path.Combine(Paths.DataDirectory,
+            $".config.json.overlay-{Environment.ProcessId}-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            _writeTemporary(temporary, json);
+            _publishTemporary(temporary, Paths.ConfigPath, File.Exists(Paths.ConfigPath));
+            temporary = null;
+        }
+        finally
+        {
+            if (temporary is not null)
+            {
+                try { File.Delete(temporary); }
+                catch (Exception error) { LogService.Error(error, "Configuration temporary-file cleanup failed."); }
+            }
+        }
+    }
+
+    internal static void WriteTemporaryFile(string path, string json)
+    {
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            4096, FileOptions.WriteThrough);
+        using var writer = new StreamWriter(stream, new UTF8Encoding(false), 1024, leaveOpen: true);
+        writer.Write(json);
+        writer.Flush();
+        stream.Flush(flushToDisk: true);
+    }
+
+    internal static void PublishTemporaryFile(string temporary, string destination, bool destinationExists)
+    {
+        if (destinationExists) File.Replace(temporary, destination, destinationBackupFileName: null);
+        else File.Move(temporary, destination);
     }
 
     public AppConfig CreateDefault()
     {
         var config = new AppConfig();
-        EnsureDefaults(config);
+        ConfigNormalizer.Normalize(config, NewBoardId);
         return config;
     }
+
+    private static string NewBoardId() => Guid.NewGuid().ToString("n");
 
     public bool RemoveBoardView(AppConfig config, string boardId)
     {
@@ -67,84 +130,4 @@ public sealed class ConfigService
         return removed;
     }
 
-    private static void EnsureDefaults(AppConfig config)
-    {
-        config.UiLanguage = LocalizationService.NormalizeCode(config.UiLanguage);
-        config.Boards ??= new();
-        config.BoardWindows ??= new();
-        config.OpenBoardWindowIds ??= new();
-        config.SummaryWindow ??= WindowLayout.Default(420, 620, 0.78);
-
-        config.Boards = config.Boards.Where(x => x is not null).ToList();
-        var usedBoardIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var board in config.Boards)
-        {
-            if (!string.IsNullOrWhiteSpace(board.Id) && usedBoardIds.Add(board.Id))
-            {
-                continue;
-            }
-
-            do
-            {
-                board.Id = Guid.NewGuid().ToString("n");
-            }
-            while (!usedBoardIds.Add(board.Id));
-        }
-
-        var enabledBoardIds = new HashSet<string>(
-            config.Boards.Where(x => x.Enabled).Select(x => x.Id),
-            StringComparer.OrdinalIgnoreCase);
-
-        NormalizeLayout(config.SummaryWindow, 420, 620, 0.78);
-
-        var boardWindows = new Dictionary<string, WindowLayout>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (boardId, layout) in config.BoardWindows)
-        {
-            if (string.IsNullOrWhiteSpace(boardId) || layout is null || !enabledBoardIds.Contains(boardId))
-            {
-                continue;
-            }
-
-            NormalizeLayout(layout, 380, 560, 0.76);
-            boardWindows.TryAdd(boardId, layout);
-        }
-
-        config.BoardWindows = boardWindows;
-        config.OpenBoardWindowIds = config.OpenBoardWindowIds
-            .Where(enabledBoardIds.Contains)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static void NormalizeLayout(WindowLayout layout, double defaultWidth, double defaultHeight, double defaultOpacity)
-    {
-        if (!double.IsFinite(layout.Left))
-        {
-            layout.Left = 80;
-        }
-
-        if (!double.IsFinite(layout.Top))
-        {
-            layout.Top = 80;
-        }
-
-        if (!double.IsFinite(layout.Width) || layout.Width <= 0)
-        {
-            layout.Width = defaultWidth;
-        }
-
-        if (!double.IsFinite(layout.Height) || layout.Height <= 0)
-        {
-            layout.Height = defaultHeight;
-        }
-
-        layout.Opacity = double.IsFinite(layout.Opacity)
-            ? Math.Clamp(layout.Opacity, 0.2, 0.95)
-            : defaultOpacity;
-
-        if (layout.PlacementMode is not ("topmost" or "normal" or "desktop"))
-        {
-            layout.PlacementMode = layout.AlwaysOnTop ? "topmost" : "desktop";
-        }
-    }
 }

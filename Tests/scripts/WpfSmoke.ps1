@@ -76,7 +76,9 @@ try {
 - [ ] Synthetic task ^sample-id
 '@
     [IO.File]::WriteAllText($boardFile, $boardText, [Text.UTF8Encoding]::new($false))
-    $configService = [DesktopOverlayBoard.Services.ConfigService]::new()
+    $paths = [DesktopOverlayBoard.Services.AppPaths]::FromRoot($fixtureRoot)
+    [DesktopOverlayBoard.Services.LogService]::Initialize($paths)
+    $configService = [DesktopOverlayBoard.Services.ConfigService]::new($paths)
     $config = $configService.CreateDefault()
     $config.UiLanguage = 'en'
     $board = [DesktopOverlayBoard.Models.BoardConfig]::new()
