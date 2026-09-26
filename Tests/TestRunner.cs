@@ -9,6 +9,8 @@ internal static class TestRunner
         new("markdown", root => RunSync(() => MarkdownKanbanTests.Run(root))),
         new("recovery", MissingColumnRecoveryTests.RunAsync),
         new("widget-ui", _ => RunSync(WidgetUiTests.Run)),
+        new("draft", _ => RunSync(InlineDraftTests.Run)),
+        new("task-card", _ => RunSync(TaskCardTests.Run)),
         new("config", root => RunSync(() => ConfigTests.Run(root))),
         new("settings-workflow", SettingsWorkflowTests.RunAsync),
         new("board-setup", root => RunSync(() => BoardSetupTests.Run(root))),

@@ -28,8 +28,6 @@ public partial class MainWindow : Window
     private KanbanTask? _dragTask;
     private Point _dragStartPoint;
     private TextBox? _inlineAddTextBox;
-    private bool _isSubmittingInlineAdd;
-    private bool _suppressInlineAddLostFocus;
     private AppConfig _config;
     private bool _loaded;
     private bool _exitRequested;
@@ -616,13 +614,7 @@ public partial class MainWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var check = new CheckBox
-        {
-            IsChecked = task.Done,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 2, 0, 0),
-            Style = (Style)FindResource("TaskCheckStyle"),
-        };
+        var check = TaskCardView.CreateCheckBox(this, task.Done);
         check.Click += async (_, _) => await ApplyWriteAsync(() => _kanban.ToggleTask(task, check.IsChecked == true));
         row.Children.Add(check);
 
@@ -646,29 +638,15 @@ public partial class MainWindow : Window
         Grid.SetColumn(text, 1);
         row.Children.Add(text);
 
-        var menuButton = MiniButton("...", (_, _) => { }, "Card menu");
-        menuButton.VerticalAlignment = VerticalAlignment.Top;
-        var menu = new ContextMenu();
-        menu.Items.Add(MenuItem(T("Action.EditCard"), async (_, _) => await EditTaskAsync(task)));
-        menu.Items.Add(MenuItem(T("Action.MoveTop"), async (_, _) => await ApplyWriteAsync(() => _kanban.MoveTaskToTop(task))));
-        menu.Items.Add(MenuItem(T("Action.Archive"), async (_, _) => await ArchiveTaskAsync(task)));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(MenuItem(T("Action.Delete"), async (_, _) => await DeleteTaskAsync(task)));
-        menuButton.ContextMenu = menu;
-        menuButton.Click += (_, _) => menuButton.ContextMenu.IsOpen = true;
+        var menuButton = TaskCardView.CreateMenuButton(this,
+            async (_, _) => await EditTaskAsync(task),
+            async (_, _) => await ApplyWriteAsync(() => _kanban.MoveTaskToTop(task)),
+            async (_, _) => await ArchiveTaskAsync(task),
+            async (_, _) => await DeleteTaskAsync(task));
         Grid.SetColumn(menuButton, 2);
         row.Children.Add(menuButton);
 
-        var card = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8, 7, 7, 7),
-            Margin = new Thickness(0, 8, 0, 0),
-            Child = row,
-        };
+        var card = TaskCardView.CreateCard(row);
         card.PreviewMouseLeftButtonDown += (_, e) =>
         {
             _dragStartPoint = e.GetPosition(null);
@@ -682,26 +660,8 @@ public partial class MainWindow : Window
                 _dragTask = null;
             }
         };
-        card.AllowDrop = true;
-        card.DragEnter += (_, _) =>
+        TaskCardView.AttachDropTarget(card, async e =>
         {
-            card.BorderBrush = new SolidColorBrush(Color.FromArgb(210, 180, 150, 255));
-            card.BorderThickness = new Thickness(2);
-        };
-        card.DragLeave += (_, _) =>
-        {
-            card.BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
-            card.BorderThickness = new Thickness(1);
-        };
-        card.DragOver += (_, e) =>
-        {
-            e.Effects = DragDropEffects.Move;
-            e.Handled = true;
-        };
-        card.Drop += async (_, e) =>
-        {
-            card.BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
-            card.BorderThickness = new Thickness(1);
             if (_dragTask is null || _dragTask.Id == task.Id)
             {
                 return;
@@ -710,7 +670,7 @@ public partial class MainWindow : Window
             var before = e.GetPosition(card).Y < card.ActualHeight / 2;
             await ApplyWriteAsync(() => before ? _kanban.MoveTaskBefore(_dragTask, task) : _kanban.MoveTaskAfter(_dragTask, task));
             _dragTask = null;
-        };
+        });
         return card;
     }
 
@@ -735,69 +695,43 @@ public partial class MainWindow : Window
             return;
         }
 
-        var input = new TextBox
-        {
-            Foreground = (Brush)FindResource("WidgetInk"),
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12.5,
-            Margin = new Thickness(8, 0, 6, 0),
-            BorderThickness = new Thickness(0),
-            Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
-            CaretBrush = Brushes.White,
-            AcceptsReturn = false,
-            Padding = new Thickness(0),
-        };
-        TextInputService.EnableIme(input);
+        var input = InlineDraftEditor.CreateAddInput(this);
+        var draft = new InlineDraftController();
 
         var row = new Grid();
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        row.Children.Add(new CheckBox
-        {
-            IsEnabled = false,
-            IsChecked = false,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 2, 0, 0),
-            Style = (Style)FindResource("TaskCheckStyle"),
-        });
+        var check = TaskCardView.CreateCheckBox(this, false);
+        check.IsEnabled = false;
+        row.Children.Add(check);
 
         Grid.SetColumn(input, 1);
         row.Children.Add(input);
 
         Border card = null!;
-        var finished = false;
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Top,
         };
         var saveButton = MiniButton(T("Action.Save"), async (_, _) => await FinishAsync(cancel: false), T("Action.Save"));
-        saveButton.PreviewMouseLeftButtonDown += (_, _) => _suppressInlineAddLostFocus = true;
+        InlineDraftEditor.SuppressLostFocusOnPress(saveButton, draft);
         actions.Children.Add(saveButton);
         var cancelButton = MiniButton(T("Action.Cancel"), async (_, _) => await FinishAsync(cancel: true), T("Action.Cancel"));
-        cancelButton.PreviewMouseLeftButtonDown += (_, _) => _suppressInlineAddLostFocus = true;
+        InlineDraftEditor.SuppressLostFocusOnPress(cancelButton, draft);
         actions.Children.Add(cancelButton);
         Grid.SetColumn(actions, 2);
         row.Children.Add(actions);
 
-        card = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(44, 255, 255, 255)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8, 7, 7, 7),
-            Margin = new Thickness(0, 8, 0, 0),
-            Child = row,
-        };
+        card = TaskCardView.CreateCard(row, backgroundAlpha: 24, borderAlpha: 44);
 
         _refreshGate.BeginDraft();
         _inlineAddTextBox = input;
         async Task FinishAsync(bool cancel)
         {
-            if (finished || _isSubmittingInlineAdd)
+            if (!draft.CanFinish)
             {
                 return;
             }
@@ -805,17 +739,16 @@ public partial class MainWindow : Window
             var text = input.Text.Trim();
             if (cancel || string.IsNullOrWhiteSpace(text))
             {
-                finished = true;
+                draft.Complete();
                 addButton.Tag = null;
                 _inlineAddTextBox = null;
                 taskPanel.Children.Remove(card);
-                _suppressInlineAddLostFocus = false;
                 _refreshGate.EndDraft();
                 await RefreshAfterDraftAsync();
                 return;
             }
 
-            _isSubmittingInlineAdd = true;
+            if (!draft.TryBeginSubmission()) return;
             try
             {
                 var result = _kanban.AddTask(group.Board, group.ColumnTitle, group.ColumnRangeHash, text);
@@ -823,49 +756,28 @@ public partial class MainWindow : Window
                 {
                     _refreshGate.MarkPending();
                     GlassConfirmWindow.ShowNotice(this, T("Dialog.UpdateFailed"), result.Error ?? T("Dialog.UpdateFailed"));
-                    _suppressInlineAddLostFocus = false;
+                    draft.RestoreLostFocus();
                     input.Focus();
                     input.SelectAll();
                     return;
                 }
 
-                finished = true;
+                draft.Complete();
                 addButton.Tag = null;
                 _inlineAddTextBox = null;
                 taskPanel.Children.Remove(card);
-                _suppressInlineAddLostFocus = false;
                 _refreshGate.EndDraft();
                 _refreshGate.Clear();
                 await ReloadAllWindowsAsync();
             }
             finally
             {
-                _isSubmittingInlineAdd = false;
+                draft.ReleaseSubmission();
             }
         }
 
-        input.KeyDown += async (_, e) =>
-        {
-            if (e.Key == Key.Enter && !TextInputService.IsImeComposing(input))
-            {
-                e.Handled = true;
-                await FinishAsync(cancel: false);
-            }
-            else if (e.Key == Key.Escape)
-            {
-                e.Handled = true;
-                await FinishAsync(cancel: true);
-            }
-        };
-        input.LostKeyboardFocus += async (_, _) =>
-        {
-            if (_suppressInlineAddLostFocus || TextInputService.IsImeComposing(input))
-            {
-                return;
-            }
-
-            await FinishAsync(cancel: false);
-        };
+        InlineDraftEditor.BindAddInput(input, draft,
+            () => FinishAsync(cancel: false), () => FinishAsync(cancel: true));
 
         addButton.Tag = input;
         taskPanel.Children.Add(card);

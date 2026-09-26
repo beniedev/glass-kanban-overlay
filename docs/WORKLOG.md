@@ -181,3 +181,8 @@ Validation:
 - Application composition initializes paths and loads configuration once. MainWindow owns saved configuration publication and passes layout/settings/board callbacks to split windows.
 - Settings and board setup workflows distinguish persistence, window publication, startup-setting, and refresh failures; a created Markdown file remains available when configuration saving fails.
 - Removed the transitional configuration/path entry points after all production callers received explicit dependencies.
+
+## Modularization: Task cards and inline drafts
+
+- Extracted passive task-card construction and inline draft input/submission helpers, retaining modal editing in the summary window and inline editing/drag ghost ownership in split windows.
+- Added draft/card test groups for Enter, Escape, focus, IME, duplicate submission, failure retention, menu callbacks, and drop feedback.

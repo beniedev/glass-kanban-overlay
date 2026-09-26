@@ -64,6 +64,26 @@ function Capture-Window([System.Windows.Window] $window, [string] $name, [bool] 
     Write-Output $destination
 }
 
+function Check-CancelledDraft([System.Windows.Window] $window, [System.Windows.Controls.Button] $addButton, [string] $file) {
+    $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($file))
+    $inputField = $window.GetType().GetField('_inlineAddTextBox', $flags)
+    $addButton.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+    Wait-Ui { $null -ne $inputField.GetValue($window) }
+    $input = $inputField.GetValue($window)
+    $input.Text = 'Synthetic cancelled draft'
+    $window.UpdateLayout()
+    $source = [System.Windows.PresentationSource]::FromVisual($input)
+    if ($null -eq $source) { throw 'The synthetic draft is not attached to the window.' }
+    $escape = [System.Windows.Input.KeyEventArgs]::new(
+        [System.Windows.Input.Keyboard]::PrimaryDevice, $source, [Environment]::TickCount, [System.Windows.Input.Key]::Escape)
+    $escape.RoutedEvent = [System.Windows.UIElement]::KeyDownEvent
+    $input.RaiseEvent($escape)
+    Wait-Ui { $null -eq $inputField.GetValue($window) }
+    if (-not $escape.Handled -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($file)) -ne $before) {
+        throw 'Cancelling an inline draft must handle Escape without writing Markdown.'
+    }
+}
+
 try {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     Add-Type -Path (Join-Path $repoRoot ("bin/" + $Configuration + "/net8.0-windows/GlassKanbanOverlay.dll"))
@@ -119,6 +139,18 @@ try {
         Capture-Window $single ("single-" + $state) $missing
     }
 
+    $activeBoard.DefaultColumn = 'TODO'
+    $reload = $main.GetType().GetMethod('ReloadAllWindowsAsync', $flags).Invoke($main, @())
+    Wait-Ui { $reload.IsCompleted }
+    $null = $reload.GetAwaiter().GetResult()
+    $addLabel = [DesktopOverlayBoard.Services.LocalizationService]::Text('Action.AddCard', [object[]]@())
+    $summaryAdd = @(Get-VisualChildren $main | Where-Object {
+        $_ -is [System.Windows.Controls.Button] -and $_.Content -eq $addLabel
+    })
+    if ($summaryAdd.Count -ne 1) { throw 'Expected one synthetic summary add action.' }
+    Check-CancelledDraft $main $summaryAdd[0] $boardFile
+    Check-CancelledDraft $single $single.FindName('AddCardButton') $boardFile
+
     # The single settings event awaits its explicit callback even when the neutral
     # Application.MainWindow is an unrelated framework Window.
     $app.MainWindow = [System.Windows.Window]::new()
@@ -147,7 +179,7 @@ try {
     $script:settingsGate.SetResult($true)
     Wait-Ui { -not [string]::IsNullOrEmpty($settingsWindow.GetType().GetField('_columnHash', $flags).GetValue($settingsWindow)) }
     if ($settingsWindow.FindName('TasksPanel').Children.Count -ne 1) { throw 'Settings callback did not reload the selected column.' }
-    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders and asynchronous settings event.'
+    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders, inline draft cancellation, and asynchronous settings event.'
     Write-Output ("Artifacts: " + $artifactRoot)
 } finally {
     try {
