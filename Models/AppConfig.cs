@@ -15,7 +15,12 @@ public sealed class AppConfig
     public AppConfig Clone()
     {
         var json = JsonSerializer.Serialize(this, ConfigJson.Options);
-        return JsonSerializer.Deserialize<AppConfig>(json, ConfigJson.Options) ?? new AppConfig();
+        var clone = JsonSerializer.Deserialize<AppConfig>(json, ConfigJson.Options) ?? new AppConfig();
+        if (BoardWindows is not null && clone.BoardWindows is not null)
+        {
+            clone.BoardWindows = new Dictionary<string, WindowLayout>(clone.BoardWindows, BoardWindows.Comparer);
+        }
+        return clone;
     }
 }
 
