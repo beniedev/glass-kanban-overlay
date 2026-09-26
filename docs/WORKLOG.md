@@ -1,5 +1,10 @@
 # Worklog
 
+## 2026-09-26 Documentation: Release And Upgrade Boundaries
+
+- Clarified in both README languages that the v0.2.0 portable archive does not contain the later changes on main, and separated CI coverage from neutral WPF and packaging checks.
+- Documented the source launcher's preference for existing executables, configuration-root precedence, and an upgrade procedure that preserves the active configuration and a rollback copy. No runtime behavior or public API changed.
+
 ## 2026-09-26 Module Boundaries And Failure Handling
 
 - Extracted the missing-column workflow into `MissingColumnRecovery`, shared by the summary and single-board windows. The single-board recovery path no longer locates a `MainWindow` through the global window collection.
