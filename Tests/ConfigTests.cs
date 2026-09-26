@@ -27,6 +27,71 @@ internal static class ConfigTests
         TestLockedDestinationPreservesConfig(root);
         TestInitialPublicationRace(root);
         TestCleanupFailurePreservesPrimary(root);
+        TestClonePreservesLayoutComparerAndSave(root);
+        TestCloneRetainsCaseSensitiveAndNullContracts();
+    }
+
+    private static void TestClonePreservesLayoutComparerAndSave(string root)
+    {
+        var service = new ConfigService(AppPaths.FromRoot(Path.Combine(root, "clone-layout-save")));
+        var config = new AppConfig
+        {
+            Boards = [new BoardConfig { Id = "board-a" }],
+            BoardWindows = new Dictionary<string, WindowLayout>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["BOARD-A"] = WindowLayout.Default(380, 560, 0.76),
+            },
+        };
+        service.Save(config);
+        var clone = config.Clone();
+        Assert(clone.BoardWindows.Comparer.Equals("BOARD-A", "board-a"),
+            "clone must retain the normalized case-insensitive layout comparer");
+        Assert(!ReferenceEquals(clone.BoardWindows, config.BoardWindows) &&
+               !ReferenceEquals(clone.BoardWindows["board-a"], config.BoardWindows["board-a"]),
+            "clone must deeply copy the layout dictionary and its values");
+        clone.BoardWindows["board-a"] = new WindowLayout
+        {
+            Left = 97, Top = 103, Width = 443, Height = 617, Opacity = 0.39,
+            Locked = true, AlwaysOnTop = false, PlacementMode = "normal",
+        };
+        service.Save(clone);
+        var loaded = service.Load();
+        Assert(loaded.BoardWindows.Count == 1 && loaded.BoardWindows["BOARD-A"].Width == 443 &&
+               loaded.BoardWindows["board-a"].Opacity == 0.39 && loaded.BoardWindows["board-a"].Locked,
+            "saving a differently cased key on a clone must retain the new layout exactly once");
+        Assert(config.BoardWindows["BOARD-A"].Width == 380 && config.BoardWindows["BOARD-A"].Opacity == 0.76,
+            "changing and saving the clone must leave the original layout untouched");
+    }
+
+    private static void TestCloneRetainsCaseSensitiveAndNullContracts()
+    {
+        var config = new AppConfig
+        {
+            BoardWindows = new Dictionary<string, WindowLayout>(StringComparer.Ordinal)
+            {
+                ["BOARD-A"] = new WindowLayout { Width = 381 },
+                ["board-a"] = new WindowLayout { Width = 442 },
+            },
+        };
+        var clone = config.Clone();
+        Assert(clone.BoardWindows.Count == 2 && !clone.BoardWindows.Comparer.Equals("BOARD-A", "board-a"),
+            "clone must retain a caller's case-sensitive comparer without normalizing layout keys");
+        clone.BoardWindows["BOARD-A"].Width = 500;
+        Assert(config.BoardWindows["BOARD-A"].Width == 381 && clone.BoardWindows["board-a"].Width == 442,
+            "both case-sensitive layout entries must remain independently deep-copied");
+
+        var nullConfig = new AppConfig
+        {
+            Boards = null!, SummaryWindow = null!, BoardWindows = null!,
+            OpenBoardWindowIds = null!, Startup = null!,
+        }.Clone();
+        Assert(nullConfig.Boards is null && nullConfig.SummaryWindow is null && nullConfig.BoardWindows is null &&
+               nullConfig.OpenBoardWindowIds is null && nullConfig.Startup is null,
+            "clone must retain existing nested-null semantics rather than normalize malformed data");
+        config.BoardWindows = new Dictionary<string, WindowLayout>(StringComparer.OrdinalIgnoreCase) { ["BOARD-A"] = null! };
+        clone = config.Clone();
+        Assert(clone.BoardWindows.Comparer.Equals("BOARD-A", "board-a") && clone.BoardWindows["board-a"] is null,
+            "clone must preserve a null layout value and the dictionary comparer together");
     }
 
     private static void TestPublicDefaultConfig(string root)
