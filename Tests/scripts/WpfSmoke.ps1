@@ -1,8 +1,15 @@
-param([ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug')
+param(
+    [ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug',
+    [ValidateSet('None', 'OpenAll', 'CaseLayout', 'All')] [string] $LayoutRegression = 'All',
+    [switch] $LayoutRegressionOnly
+)
 
 $ErrorActionPreference = 'Stop'
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentState]::STA) {
     throw 'Run this neutral WPF smoke with PowerShell -STA.'
+}
+if ($LayoutRegressionOnly -and $LayoutRegression -eq 'None') {
+    throw 'Select a layout regression when running only layout regressions.'
 }
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $artifactRoot = Join-Path $repoRoot ('TestResults/wpf-smoke-' + $Configuration + '-' + [Guid]::NewGuid().ToString('N'))
@@ -14,6 +21,7 @@ $app = $null
 $main = $null
 $settingsWindow = $null
 $flags = [Reflection.BindingFlags]'Instance,NonPublic'
+Write-Output ("Artifacts: " + $artifactRoot)
 
 function Wait-Ui([scriptblock] $condition) {
     $frame = [System.Windows.Threading.DispatcherFrame]::new()
@@ -64,6 +72,121 @@ function Capture-Window([System.Windows.Window] $window, [string] $name, [bool] 
     Write-Output $destination
 }
 
+function Assert-Layout($actual, $expected, [string] $mode, [string] $context) {
+    foreach ($property in @('Left', 'Top', 'Width', 'Height', 'Opacity')) {
+        if ([Math]::Abs($actual.$property - $expected.$property) -gt 0.00001) {
+            throw "$context $property expected $($expected.$property), actual $($actual.$property)."
+        }
+    }
+    if ($actual.Locked -ne $expected.Locked -or $actual.PlacementMode -ne $mode -or
+        $actual.AlwaysOnTop -ne ($mode -eq 'topmost')) {
+        throw "$context changed the lock or placement state unexpectedly."
+    }
+}
+
+function Assert-SavedLayout($main, $single, $configService, $expected, [string] $mode, $summary = $null) {
+    $active = $main.GetType().GetField('_config', $flags).GetValue($main)
+    $singleConfig = $single.GetType().GetField('_config', $flags).GetValue($single)
+    $boardId = $single.BoardId
+    if (-not [Object]::ReferenceEquals($active, $singleConfig)) {
+        throw 'Both windows must retain the same newly saved configuration object.'
+    }
+    if ($active.BoardWindows.Count -ne 1 -or -not $active.BoardWindows.Comparer.Equals($boardId, $boardId.ToUpperInvariant())) {
+        throw 'The active configuration must contain one case-insensitive layout key.'
+    }
+    Assert-Layout ($single.CaptureLayout()) $expected $mode 'Live split window'
+    if ($single.ResizeMode -ne [System.Windows.ResizeMode]::NoResize) { throw 'The live split window lost its lock.' }
+    Assert-Layout ($active.BoardWindows[$boardId]) $expected $mode 'Active configuration'
+
+    $json = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($configService.Paths.ConfigPath))
+    try {
+        $keys = @($json.RootElement.GetProperty('boardWindows').EnumerateObject() | Where-Object {
+            [string]::Equals($_.Name, $boardId, [StringComparison]::OrdinalIgnoreCase)
+        })
+        if ($keys.Count -ne 1) { throw 'The saved JSON must contain exactly one layout key for the board.' }
+    } finally { $json.Dispose() }
+    $loaded = $configService.Load()
+    if ($loaded.BoardWindows.Count -ne 1) { throw 'Reloaded JSON contains unexpected layout keys.' }
+    Assert-Layout ($loaded.BoardWindows[$boardId]) $expected $mode 'Reloaded JSON'
+    if ($null -ne $summary) {
+        Assert-Layout ($main.GetType().GetMethod('CaptureLayout', $flags).Invoke($main, @())) $summary $summary.PlacementMode 'Live summary window'
+        Assert-Layout $active.SummaryWindow $summary $summary.PlacementMode 'Active summary layout'
+        Assert-Layout $loaded.SummaryWindow $summary $summary.PlacementMode 'Reloaded summary layout'
+    }
+}
+
+function Prepare-LiveLayout($main, $single, [bool] $differentCase) {
+    $active = $main.GetType().GetField('_config', $flags).GetValue($main)
+    $key = if ($differentCase) { $single.BoardId.ToUpperInvariant() } else { $single.BoardId }
+    $active.BoardWindows = [Collections.Generic.Dictionary[string, DesktopOverlayBoard.Models.WindowLayout]]::new([StringComparer]::OrdinalIgnoreCase)
+    $stored = $single.CaptureLayout()
+    $active.BoardWindows.Add($key, $stored)
+    # Seed the synthetic saved fixture directly, so each regression isolates one defect.
+    $main.GetType().GetMethod('CommitCandidate', $flags).Invoke($main, [object[]]@($active)) | Out-Null
+    $single.Left += 11
+    $single.Top += 13
+    $single.Width += 37
+    $single.Height += 29
+    $single.FindName('OpacitySlider').Value = if ([Math]::Abs($stored.Opacity - 0.39) -lt 0.00001) { 0.57 } else { 0.39 }
+    $single.GetType().GetMethod('ApplyPinMode', $flags).Invoke($single, [object[]]@('normal')) | Out-Null
+    $single.GetType().GetMethod('ApplyLockState', $flags).Invoke($single, [object[]]@($true)) | Out-Null
+    $single.UpdateLayout()
+    return [PSCustomObject]@{ Current = $single.CaptureLayout(); Stored = $stored }
+}
+
+function Assert-UnstoredLayout($main, $single, $configService, $fixture) {
+    $active = $main.GetType().GetField('_config', $flags).GetValue($main)
+    $loaded = $configService.Load()
+    Assert-Layout ($active.BoardWindows[$single.BoardId]) $fixture.Stored $fixture.Stored.PlacementMode 'Before action active layout'
+    Assert-Layout ($loaded.BoardWindows[$single.BoardId]) $fixture.Stored $fixture.Stored.PlacementMode 'Before action saved JSON'
+    if ([Math]::Abs($fixture.Current.Width - $fixture.Stored.Width) -lt 0.00001 -or
+        [Math]::Abs($fixture.Current.Opacity - $fixture.Stored.Opacity) -lt 0.00001) {
+        throw 'The regression must start with unsaved width and opacity changes.'
+    }
+    Write-Output ("Unsaved layout confirmed: stored width {0}, opacity {1}; current width {2}, opacity {3}." -f
+        $fixture.Stored.Width, $fixture.Stored.Opacity, $fixture.Current.Width, $fixture.Current.Opacity)
+}
+
+function Check-LayoutRegressions($main, $single, $configService, [string] $boardFile) {
+    Wait-Ui { $main.GetType().GetField('_loaded', $flags).GetValue($main) -and $single.GetType().GetField('_loaded', $flags).GetValue($single) }
+    $active = $main.GetType().GetField('_config', $flags).GetValue($main)
+    $active.Boards[0].DefaultColumn = 'TODO'
+    $reload = $main.GetType().GetMethod('ReloadAllWindowsAsync', $flags).Invoke($main, @())
+    Wait-Ui { $reload.IsCompleted }
+    $null = $reload.GetAwaiter().GetResult()
+    $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($boardFile))
+
+    if ($LayoutRegression -in @('CaseLayout', 'All')) {
+        $fixture = Prepare-LiveLayout $main $single $true
+        $expected = $fixture.Current
+        Assert-UnstoredLayout $main $single $configService $fixture
+        $saved = $single.GetType().GetMethod('SaveLayout', $flags).Invoke($single, @())
+        if (-not $saved) { throw 'The real split-window save callback failed.' }
+        Capture-Window $single 'layout-case-saved' $false
+        Assert-SavedLayout $main $single $configService $expected 'normal'
+        Write-Output 'Layout regression passed: differently cased SaveBoardLayout persisted the current layout exactly once.'
+    }
+    if ($LayoutRegression -in @('OpenAll', 'All')) {
+        $fixture = Prepare-LiveLayout $main $single $false
+        $expected = $fixture.Current
+        $main.Left += 7
+        $main.Top += 9
+        $main.Width += 23
+        $main.Height += 17
+        $summary = $main.GetType().GetMethod('CaptureLayout', $flags).Invoke($main, @())
+        Assert-UnstoredLayout $main $single $configService $fixture
+        Capture-Window $single 'layout-desktop-before' $false
+        $main.GetType().GetMethod('OpenAllBoardsToDesktop', $flags).Invoke($main, @()) | Out-Null
+        Capture-Window $single 'layout-desktop-after' $false
+        Assert-SavedLayout $main $single $configService $expected 'desktop' $summary
+        if ($main.IsVisible) { throw 'Opening boards on the desktop must still hide the summary window.' }
+        Write-Output 'Layout regression passed: OpenAllBoardsToDesktop changed only the placement mode and retained current layouts.'
+    }
+    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($boardFile)) -ne $before) {
+        throw 'Layout saving must not change the synthetic Markdown bytes.'
+    }
+}
+
 try {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     Add-Type -Path (Join-Path $repoRoot ("bin/" + $Configuration + "/net8.0-windows/GlassKanbanOverlay.dll"))
@@ -106,6 +229,7 @@ try {
     $main.Show()
     $single = $main.GetType().GetMethod('OpenSingleWindow', $flags).Invoke($main, [object[]]@($activeBoard, $false))
 
+    if (-not $LayoutRegressionOnly) {
     foreach ($missing in @($false, $true)) {
         $activeBoard.DefaultColumn = if ($missing) { 'Missing' } else { 'TODO' }
         $reload = $main.GetType().GetMethod('ReloadAllWindowsAsync', $flags).Invoke($main, @())
@@ -147,7 +271,15 @@ try {
     $script:settingsGate.SetResult($true)
     Wait-Ui { -not [string]::IsNullOrEmpty($settingsWindow.GetType().GetField('_columnHash', $flags).GetValue($settingsWindow)) }
     if ($settingsWindow.FindName('TasksPanel').Children.Count -ne 1) { throw 'Settings callback did not reload the selected column.' }
-    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders and asynchronous settings event.'
+    }
+    if ($LayoutRegression -ne 'None') {
+        Check-LayoutRegressions $main $single $configService $boardFile
+    }
+    if ($LayoutRegressionOnly) {
+        Write-Output 'Neutral WPF synthetic layout regression passed.'
+    } else {
+        Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders and asynchronous settings event.'
+    }
     Write-Output ("Artifacts: " + $artifactRoot)
 } finally {
     try {
