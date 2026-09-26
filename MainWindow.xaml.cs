@@ -1039,6 +1039,7 @@ public partial class MainWindow : Window
     private void OpenAllBoardsToDesktop()
     {
         var candidate = _config.Clone();
+        CaptureWindowLayouts(candidate);
         foreach (var board in candidate.Boards.Where(board => board.Enabled))
         {
             if (!candidate.BoardWindows.TryGetValue(board.Id, out var layout))
