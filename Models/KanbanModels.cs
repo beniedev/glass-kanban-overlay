@@ -17,29 +17,10 @@ public enum KanbanBoardTemplate
 public sealed class PendingRefreshGate
 {
     public bool HasActiveDraft { get; private set; }
-    public bool HasPendingRefresh { get; private set; }
-    public bool ShouldDefer => HasActiveDraft;
 
     public void BeginDraft() => HasActiveDraft = true;
 
     public void EndDraft() => HasActiveDraft = false;
-
-    public void Defer() => MarkPending();
-
-    public void MarkPending() => HasPendingRefresh = true;
-
-    public void Clear() => HasPendingRefresh = false;
-
-    public bool TryConsumeReady()
-    {
-        if (HasActiveDraft || !HasPendingRefresh)
-        {
-            return false;
-        }
-
-        HasPendingRefresh = false;
-        return true;
-    }
 }
 
 public sealed record KanbanColumn(

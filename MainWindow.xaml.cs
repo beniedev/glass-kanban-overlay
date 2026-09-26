@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private readonly System.Drawing.Icon _appIcon;
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly PendingRefreshGate _refreshGate = new();
+    private readonly WindowRefreshCoordinator _refreshCoordinator;
     private KanbanTask? _dragTask;
     private Point _dragStartPoint;
     private TextBox? _inlineAddTextBox;
@@ -52,12 +53,19 @@ public partial class MainWindow : Window
         LocalizationService.Use(_config.UiLanguage);
         InitializeComponent();
         ApplyLocalization();
+        _refreshCoordinator = new WindowRefreshCoordinator(
+            () => WindowRefreshTarget.Capture(_config, _config.Boards.Where(board => board.Enabled)),
+            () => _refreshGate.HasActiveDraft,
+            target => Task.Run<IReadOnlyList<BoardGroup>>(() => target.CreateReadBoards()
+                .Select(board => _kanban.LoadGroup(board, incompleteOnly: true)).ToList()),
+            (_, groups) => ApplyRefreshGroups(groups), ReportRefreshFailure);
         _appIcon = LoadAppIcon();
         _trayIcon = CreateTrayIcon();
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _refreshTimer.Tick += RefreshTimer_Tick;
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
+        Closed += (_, _) => _refreshCoordinator.Close();
     }
 
     public void HideAfterInitialLoad()
@@ -139,8 +147,10 @@ public partial class MainWindow : Window
     {
         ApplyLayout();
         _loaded = true;
-        await ReloadAsync();
+        await ObserveRefreshForUiAsync(ReloadAsync());
+        if (_refreshCoordinator.IsClosed) return;
         RestoreOpenBoardWindows();
+        if (_refreshCoordinator.IsClosed) return;
         _refreshTimer.Start();
         if (_startupResult is { Success: false } startupFailure)
         {
@@ -160,6 +170,7 @@ public partial class MainWindow : Window
     private async Task ReinforceRestoredWindowsAfterStartupAsync()
     {
         await Task.Delay(TimeSpan.FromSeconds(3));
+        if (_refreshCoordinator.IsClosed) return;
         if (!Dispatcher.CheckAccess())
         {
             await Dispatcher.InvokeAsync(ReinforceRestoredWindows);
@@ -171,6 +182,7 @@ public partial class MainWindow : Window
 
     private void ReinforceRestoredWindows()
     {
+        if (_refreshCoordinator.IsClosed) return;
         RestoreOpenBoardWindows();
         foreach (var window in _singleWindows.ToList())
         {
@@ -325,6 +337,7 @@ public partial class MainWindow : Window
 
     private async void RefreshTimer_Tick(object? sender, EventArgs e)
     {
+        if (_refreshCoordinator.IsClosed) return;
         var changed = false;
         foreach (var board in _config.Boards.Where(x => x.Enabled && File.Exists(x.FilePath)))
         {
@@ -344,31 +357,19 @@ public partial class MainWindow : Window
 
         if (changed)
         {
-            await ReloadAsync();
+            await ObserveRefreshForUiAsync(ReloadAsync());
         }
     }
 
     private async Task ReloadAsync()
     {
-        if (_refreshGate.ShouldDefer)
-        {
-            DeferRefresh();
-            return;
-        }
-
+        if (_refreshCoordinator.IsClosed) return;
         StatusText.Text = T("Status.Refreshing");
-        var groups = await Task.Run(() =>
-            _config.Boards
-                .Where(x => x.Enabled)
-                .Select(x => _kanban.LoadGroup(x, incompleteOnly: true))
-                .ToList());
+        await CompleteRefreshAsync(_refreshCoordinator.RequestAsync());
+    }
 
-        if (_refreshGate.ShouldDefer)
-        {
-            DeferRefresh();
-            return;
-        }
-
+    private void ApplyRefreshGroups(IReadOnlyList<BoardGroup> groups)
+    {
         GroupsPanel.Children.Clear();
         if (groups.Count == 0)
         {
@@ -385,29 +386,58 @@ public partial class MainWindow : Window
         StatusText.Text = T("Status.RefreshedAt", DateTime.Now);
     }
 
-    private void DeferRefresh()
+    private async Task CompleteRefreshAsync(Task<WindowRefreshResult> refresh)
     {
-        _refreshGate.Defer();
-        StatusText.Text = T("Error.SourceChanged");
+        var result = await refresh;
+        if (_refreshCoordinator.IsClosed) return;
+        if (result.Status == WindowRefreshStatus.Deferred) StatusText.Text = T("Status.RefreshPending");
+        result.ThrowIfFailedOrDeferred();
     }
 
-    private async Task RefreshAfterDraftAsync()
+    private void ReportRefreshFailure(Exception error)
     {
-        if (_refreshGate.ShouldDefer || !_refreshGate.TryConsumeReady())
-        {
-            return;
-        }
-        await ReloadAllWindowsAsync();
+        if (_refreshCoordinator.IsClosed) return;
+        LogService.Error(error, "Summary refresh failed.");
+        StatusText.Text = T("Error.RefreshFailed", error.Message);
     }
 
-    private async Task ReloadAllWindowsAsync()
+    private async Task ObserveRefreshForUiAsync(Task refresh)
     {
-        await ReloadAsync();
-        foreach (var window in _singleWindows.ToList())
+        try { await refresh; }
+        catch (WindowRefreshDeferredException pending)
         {
-            await window.ReloadAsync();
+            if (!_refreshCoordinator.IsClosed)
+                StatusText.Text = pending.RefreshError is { } failure
+                    ? T("Error.RefreshFailed", failure.Message) : T("Status.RefreshPending");
+        }
+        catch (Exception error)
+        {
+            // The originating coordinator already logged the actual failure.
+            if (!_refreshCoordinator.IsClosed) StatusText.Text = T("Error.RefreshFailed", error.Message);
         }
     }
+
+    private void BeginDraft()
+    {
+        _refreshGate.BeginDraft();
+        _refreshCoordinator.NotifyDraftStarted();
+    }
+
+    private async Task RefreshAfterDraftAsync(bool forceRefresh = false)
+    {
+        if (!_refreshGate.HasActiveDraft) return;
+        _refreshGate.EndDraft();
+        var refresh = _refreshCoordinator.NotifyDraftEnded();
+        if (forceRefresh) refresh ??= _refreshCoordinator.RequestAsync();
+        if (refresh is not null)
+            await ObserveRefreshForUiAsync(ReloadWindowsAsync(() => CompleteRefreshAsync(refresh)));
+    }
+
+    private Task ReloadAllWindowsAsync() => ReloadWindowsAsync(ReloadAsync);
+
+    private Task ReloadWindowsAsync(Func<Task> summaryRefresh) => WindowRefreshCoordinator.RefreshAllAsync(
+        new[] { summaryRefresh }.Concat(_singleWindows.ToList().Select<SingleBoardWindow, Func<Task>>(
+            window => window.ReloadAsync)));
 
     private UIElement CreateEmptyStateCard()
     {
@@ -583,8 +613,15 @@ public partial class MainWindow : Window
         BoardGroup group, Window owner, MissingColumnRecoveryAction action)
     {
         try { await _missingColumnRecovery.RecoverAsync(group, owner, action); }
+        catch (WindowRefreshDeferredException pending)
+        {
+            if (!_refreshCoordinator.IsClosed)
+                StatusText.Text = pending.RefreshError is { } failure
+                    ? T("Error.RefreshFailed", failure.Message) : T("Status.RefreshPending");
+        }
         catch (Exception error)
         {
+            if (_refreshCoordinator.IsClosed) return;
             LogService.Error(error, "Missing column recovery did not complete.");
             GlassConfirmWindow.ShowNotice(owner, T("Dialog.UpdateFailed"), T("Message.OperationFailed", error.Message));
         }
@@ -604,7 +641,7 @@ public partial class MainWindow : Window
 
         var candidate = _config.Clone();
         if (_configService.RemoveBoardView(candidate, board.Id) && !TryCommitCandidate(candidate, owner)) return;
-        await ReloadAllWindowsAsync();
+        await ObserveRefreshForUiAsync(ReloadAllWindowsAsync());
     }
 
     private UIElement CreateTaskRow(KanbanTask task)
@@ -697,6 +734,7 @@ public partial class MainWindow : Window
 
         var input = InlineDraftEditor.CreateAddInput(this);
         var draft = new InlineDraftController();
+        var target = WindowBoardIdentity.Capture(group.Board);
 
         var row = new Grid();
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -727,12 +765,22 @@ public partial class MainWindow : Window
 
         card = TaskCardView.CreateCard(row, backgroundAlpha: 24, borderAlpha: 44);
 
-        _refreshGate.BeginDraft();
+        BeginDraft();
         _inlineAddTextBox = input;
         async Task FinishAsync(bool cancel)
         {
             if (!draft.CanFinish)
             {
+                return;
+            }
+
+            var currentBoard = _config.Boards.FirstOrDefault(board => board.Enabled &&
+                string.Equals(board.Id, target.Id, StringComparison.OrdinalIgnoreCase));
+            if (!cancel && (currentBoard is null || !target.Matches(currentBoard)))
+            {
+                _ = _refreshCoordinator.RequestAsync();
+                StatusText.Text = T("Error.DraftTargetChanged");
+                input.Focus();
                 return;
             }
 
@@ -743,7 +791,6 @@ public partial class MainWindow : Window
                 addButton.Tag = null;
                 _inlineAddTextBox = null;
                 taskPanel.Children.Remove(card);
-                _refreshGate.EndDraft();
                 await RefreshAfterDraftAsync();
                 return;
             }
@@ -754,7 +801,7 @@ public partial class MainWindow : Window
                 var result = _kanban.AddTask(group.Board, group.ColumnTitle, group.ColumnRangeHash, text);
                 if (!result.Success)
                 {
-                    _refreshGate.MarkPending();
+                    await ObserveRefreshForUiAsync(ReloadAsync());
                     GlassConfirmWindow.ShowNotice(this, T("Dialog.UpdateFailed"), result.Error ?? T("Dialog.UpdateFailed"));
                     draft.RestoreLostFocus();
                     input.Focus();
@@ -766,9 +813,7 @@ public partial class MainWindow : Window
                 addButton.Tag = null;
                 _inlineAddTextBox = null;
                 taskPanel.Children.Remove(card);
-                _refreshGate.EndDraft();
-                _refreshGate.Clear();
-                await ReloadAllWindowsAsync();
+                await RefreshAfterDraftAsync(forceRefresh: true);
             }
             finally
             {
@@ -783,10 +828,24 @@ public partial class MainWindow : Window
         taskPanel.Children.Add(card);
         Dispatcher.BeginInvoke(new Action(() =>
         {
+            if (_refreshCoordinator.IsClosed) return;
             input.Focus();
             Keyboard.Focus(input);
             scroll.ScrollToEnd();
         }), DispatcherPriority.Background);
+    }
+
+    // This completion belongs to one modal edit, not whichever draft is active
+    // after its awaited refresh. Mark it complete before calling the refresh.
+    internal static Func<bool, Task> CreateModalDraftCompletion(Func<bool, Task> complete)
+    {
+        var completed = false;
+        return forceRefresh =>
+        {
+            if (completed) return Task.CompletedTask;
+            completed = true;
+            return complete(forceRefresh);
+        };
     }
 
     private async Task EditTaskAsync(KanbanTask task)
@@ -797,7 +856,8 @@ public partial class MainWindow : Window
         }
 
         var draft = task.Text;
-        _refreshGate.BeginDraft();
+        BeginDraft();
+        var completeDraft = CreateModalDraftCompletion(RefreshAfterDraftAsync);
         try
         {
             while (true)
@@ -812,21 +872,18 @@ public partial class MainWindow : Window
                 var result = _kanban.RenameTask(task, draft);
                 if (!result.Success)
                 {
-                    _refreshGate.MarkPending();
+                    await ObserveRefreshForUiAsync(ReloadAsync());
                     GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"), result.Error ?? T("Dialog.WriteFailed"));
                     continue;
                 }
 
-                _refreshGate.EndDraft();
-                _refreshGate.Clear();
-                await ReloadAllWindowsAsync();
+                await completeDraft(true);
                 return;
             }
         }
         finally
         {
-            _refreshGate.EndDraft();
-            await RefreshAfterDraftAsync();
+            await completeDraft(false);
         }
     }
 
@@ -853,11 +910,7 @@ public partial class MainWindow : Window
             GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"), result.Error ?? T("Dialog.WriteFailed"));
         }
 
-        await ReloadAsync();
-        foreach (var window in _singleWindows.ToList())
-        {
-            await window.ReloadAsync();
-        }
+        await ObserveRefreshForUiAsync(ReloadAllWindowsAsync());
     }
 
     private SingleBoardWindow OpenSingleWindow(BoardConfig board, bool rememberOpenState = true)
@@ -960,7 +1013,7 @@ public partial class MainWindow : Window
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        await ReloadAsync();
+        await ObserveRefreshForUiAsync(ReloadAsync());
     }
 
     private void OpenAllBoardsButton_Click(object sender, RoutedEventArgs e)

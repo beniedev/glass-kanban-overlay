@@ -5,7 +5,7 @@ namespace DesktopOverlayBoard.Application;
 
 public sealed record SettingsCommitResult(
     bool Saved, Exception? SaveError = null, StartupApplyResult? Startup = null,
-    Exception? WindowError = null, Exception? RefreshError = null);
+    Exception? WindowError = null, Exception? RefreshError = null, bool RefreshDeferred = false);
 
 public sealed class SettingsWorkflow(Action<AppConfig> save, Func<bool, StartupApplyResult> applyStartup)
 {
@@ -24,6 +24,10 @@ public sealed class SettingsWorkflow(Action<AppConfig> save, Func<bool, StartupA
         catch (Exception error) { startup = new(false, error.Message); }
 
         try { await refresh(); }
+        catch (WindowRefreshDeferredException pending)
+        {
+            return new(true, Startup: startup, RefreshError: pending.RefreshError, RefreshDeferred: true);
+        }
         catch (Exception error) { return new(true, Startup: startup, RefreshError: error); }
         return new(true, Startup: startup);
     }

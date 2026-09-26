@@ -299,6 +299,8 @@ public partial class SettingsWindow : Window
             failures.Add(T("Message.SavedWindowsFailed", windowError.Message));
         if (result.RefreshError is { } refreshError)
             failures.Add(T("Message.SavedRefreshFailed", refreshError.Message));
+        if (result.RefreshDeferred)
+            failures.Add(T("Message.SavedRefreshDeferred"));
         if (failures.Count > 0)
             GlassConfirmWindow.ShowNotice(this, T("Dialog.ConfigurationSaved"), string.Join(Environment.NewLine, failures));
         DialogResult = true;
