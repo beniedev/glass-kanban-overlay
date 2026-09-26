@@ -66,12 +66,35 @@ function Capture-Window([System.Windows.Window] $window, [string] $name, [bool] 
 
 function Check-CancelledDraft([System.Windows.Window] $window, [System.Windows.Controls.Button] $addButton, [string] $file) {
     $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($file))
+    $panel = $window.FindName('GroupsPanel')
+    if ($null -eq $panel) { $panel = $window.FindName('TasksPanel') }
+    $originalContent = $panel.Children[0]
     $inputField = $window.GetType().GetField('_inlineAddTextBox', $flags)
     $addButton.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
     Wait-Ui { $null -ne $inputField.GetValue($window) }
     $input = $inputField.GetValue($window)
     $input.Text = 'Synthetic cancelled draft'
     $window.UpdateLayout()
+    $reloadMethod = $window.GetType().GetMethod('ReloadAsync', [Reflection.BindingFlags]'Instance,Public,NonPublic')
+    $pendingRefresh = $reloadMethod.Invoke($window, @())
+    Wait-Ui { $pendingRefresh.IsCompleted }
+    $deferred = $false
+    try { $null = $pendingRefresh.GetAwaiter().GetResult() }
+    catch {
+        $failure = $_.Exception
+        while ($null -ne $failure) {
+            if ($failure.GetType().FullName -eq 'DesktopOverlayBoard.Application.WindowRefreshDeferredException') {
+                $deferred = $true
+                break
+            }
+            $failure = $failure.InnerException
+        }
+        if (-not $deferred) { throw }
+    }
+    if (-not $deferred -or -not [Object]::ReferenceEquals($inputField.GetValue($window), $input) -or
+        $input.Text -ne 'Synthetic cancelled draft') {
+        throw 'A refresh during editing must report Deferred and retain the exact draft.'
+    }
     $source = [System.Windows.PresentationSource]::FromVisual($input)
     if ($null -eq $source) { throw 'The synthetic draft is not attached to the window.' }
     $escape = [System.Windows.Input.KeyEventArgs]::new(
@@ -79,6 +102,7 @@ function Check-CancelledDraft([System.Windows.Window] $window, [System.Windows.C
     $escape.RoutedEvent = [System.Windows.UIElement]::KeyDownEvent
     $input.RaiseEvent($escape)
     Wait-Ui { $null -eq $inputField.GetValue($window) }
+    Wait-Ui { $panel.Children.Count -gt 0 -and -not [Object]::ReferenceEquals($panel.Children[0], $originalContent) }
     if (-not $escape.Handled -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($file)) -ne $before) {
         throw 'Cancelling an inline draft must handle Escape without writing Markdown.'
     }
@@ -179,7 +203,7 @@ try {
     $script:settingsGate.SetResult($true)
     Wait-Ui { -not [string]::IsNullOrEmpty($settingsWindow.GetType().GetField('_columnHash', $flags).GetValue($settingsWindow)) }
     if ($settingsWindow.FindName('TasksPanel').Children.Count -ne 1) { throw 'Settings callback did not reload the selected column.' }
-    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders, inline draft cancellation, and asynchronous settings event.'
+    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders, deferred refresh and draft cancellation, and asynchronous settings event.'
     Write-Output ("Artifacts: " + $artifactRoot)
 } finally {
     try {

@@ -17,21 +17,13 @@ internal static class WindowStateTests
     private static void TestPendingRefreshGate()
     {
         var gate = new PendingRefreshGate();
-        Assert(!gate.ShouldDefer && !gate.HasPendingRefresh, "refresh gate should start ready");
+        Assert(!gate.HasActiveDraft, "window draft gate should start ready");
 
         gate.BeginDraft();
-        Assert(gate.ShouldDefer, "active draft should defer refresh");
-        gate.Defer();
-        Assert(gate.HasPendingRefresh, "deferred refresh should become pending");
-        Assert(!gate.TryConsumeReady(), "pending refresh must not consume during a draft");
+        Assert(gate.HasActiveDraft, "window draft gate should expose active draft");
 
         gate.EndDraft();
-        Assert(gate.TryConsumeReady(), "pending refresh should consume after draft ends");
-        Assert(!gate.HasPendingRefresh, "consuming refresh should clear pending state");
-
-        gate.MarkPending();
-        gate.Clear();
-        Assert(!gate.TryConsumeReady(), "cleared refresh should not consume");
+        Assert(!gate.HasActiveDraft, "ending draft should release the gate without owning a refresh queue");
     }
 
     private static void TestWindowPlacementClamp()

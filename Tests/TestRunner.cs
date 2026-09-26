@@ -15,6 +15,7 @@ internal static class TestRunner
         new("settings-workflow", SettingsWorkflowTests.RunAsync),
         new("board-setup", root => RunSync(() => BoardSetupTests.Run(root))),
         new("startup", root => RunSync(() => StartupServiceTests.Run(root))),
+        new("refresh", WindowRefreshTests.RunAsync),
         new("window-state", root => RunSync(() => WindowStateTests.Run(root))),
         new("runtime", root => RunSync(() => RuntimeContractTests.Run(root))),
     ];

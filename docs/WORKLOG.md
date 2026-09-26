@@ -186,3 +186,8 @@ Validation:
 
 - Extracted passive task-card construction and inline draft input/submission helpers, retaining modal editing in the summary window and inline editing/drag ghost ownership in split windows.
 - Added draft/card test groups for Enter, Escape, focus, IME, duplicate submission, failure retention, menu callbacks, and drop feedback.
+
+## Modularization: Per-window refresh coordination
+
+- Each window now coordinates one read in flight and one coalesced pending refresh, with target/configuration/draft guards and closed-window handling.
+- Deferred refresh is reported separately from success/failure, so settings can finish while active drafts retain their exact editor and text. Draft completion consumes pending refresh.
