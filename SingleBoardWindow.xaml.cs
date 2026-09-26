@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using DesktopOverlayBoard.Models;
 using DesktopOverlayBoard.Services;
 using DesktopOverlayBoard.UI;
+using DesktopOverlayBoard.Application;
 using Forms = System.Windows.Forms;
 
 namespace DesktopOverlayBoard;
@@ -30,9 +31,8 @@ public partial class SingleBoardWindow : Window
     private Border? _inlineAddCard;
     private TextBox? _inlineAddTextBox;
     private TextBox? _activeInlineEditor;
-    private bool _isSubmittingInlineAdd;
-    private bool _isSubmittingInlineEdit;
-    private bool _suppressInlineAddLostFocus;
+    private InlineDraftController? _inlineAddDraft;
+    private InlineDraftController? _inlineEditDraft;
     private bool _closeWithoutSaving;
     private KanbanTask? _dragTask;
     private Point _dragStartPoint;
@@ -151,9 +151,8 @@ public partial class SingleBoardWindow : Window
         _inlineAddCard = null;
         _inlineAddTextBox = null;
         _activeInlineEditor = null;
-        _isSubmittingInlineAdd = false;
-        _isSubmittingInlineEdit = false;
-        _suppressInlineAddLostFocus = false;
+        _inlineAddDraft = null;
+        _inlineEditDraft = null;
         TasksPanel.Children.Clear();
 
         if (!string.IsNullOrWhiteSpace(group.Error))
@@ -241,13 +240,7 @@ public partial class SingleBoardWindow : Window
         row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var check = new CheckBox
-        {
-            IsChecked = task.Done,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 2, 0, 0),
-            Style = (Style)FindResource("TaskCheckStyle"),
-        };
+        var check = TaskCardView.CreateCheckBox(this, task.Done);
         check.Click += async (_, _) => await ApplyWriteAsync(() => _kanban.ToggleTask(task, check.IsChecked == true));
         row.Children.Add(check);
 
@@ -291,7 +284,7 @@ public partial class SingleBoardWindow : Window
         };
         textBox.LostKeyboardFocus += async (_, _) =>
         {
-            if (!_isSubmittingInlineEdit && !textBox.IsReadOnly && !TextInputService.IsImeComposing(textBox))
+            if (_inlineEditDraft?.IsSubmitting != true && !textBox.IsReadOnly && !TextInputService.IsImeComposing(textBox))
             {
                 await CommitInlineEditAsync(task, textBox);
             }
@@ -311,16 +304,7 @@ public partial class SingleBoardWindow : Window
         Grid.SetColumn(actions, 2);
         row.Children.Add(actions);
 
-        var card = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromArgb(task.Done ? (byte)10 : (byte)18, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8, 7, 7, 7),
-            Margin = new Thickness(0, 8, 0, 0),
-            Child = row,
-        };
+        var card = TaskCardView.CreateCard(row, backgroundAlpha: task.Done ? (byte)10 : (byte)18);
         card.PreviewMouseLeftButtonDown += (_, e) =>
         {
             _dragStartPoint = e.GetPosition(null);
@@ -350,26 +334,8 @@ public partial class SingleBoardWindow : Window
                 }
             }
         };
-        card.AllowDrop = true;
-        card.DragEnter += (_, _) =>
+        TaskCardView.AttachDropTarget(card, async e =>
         {
-            card.BorderBrush = new SolidColorBrush(Color.FromArgb(210, 180, 150, 255));
-            card.BorderThickness = new Thickness(2);
-        };
-        card.DragLeave += (_, _) =>
-        {
-            card.BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
-            card.BorderThickness = new Thickness(1);
-        };
-        card.DragOver += (_, e) =>
-        {
-            e.Effects = DragDropEffects.Move;
-            e.Handled = true;
-        };
-        card.Drop += async (_, e) =>
-        {
-            card.BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
-            card.BorderThickness = new Thickness(1);
             if (_dragTask is null || _dragTask.Id == task.Id)
             {
                 return;
@@ -378,7 +344,7 @@ public partial class SingleBoardWindow : Window
             var before = e.GetPosition(card).Y < card.ActualHeight / 2;
             await ApplyWriteAsync(() => before ? _kanban.MoveTaskBefore(_dragTask, task) : _kanban.MoveTaskAfter(_dragTask, task));
             _dragTask = null;
-        };
+        });
         return card;
     }
 
@@ -391,57 +357,16 @@ public partial class SingleBoardWindow : Window
         row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var check = new CheckBox
-        {
-            IsChecked = false,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 2, 0, 0),
-            Style = (Style)FindResource("TaskCheckStyle"),
-            IsEnabled = false,
-            Opacity = 0.6,
-        };
+        var check = TaskCardView.CreateCheckBox(this, false);
+        check.IsEnabled = false;
+        check.Opacity = 0.6;
         row.Children.Add(check);
 
-        var textBox = new TextBox
-        {
-            Foreground = (Brush)FindResource("WidgetInk"),
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12.5,
-            Margin = new Thickness(8, 0, 6, 0),
-            BorderThickness = new Thickness(0),
-            Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
-            AcceptsReturn = false,
-            Padding = new Thickness(0),
-            CaretBrush = Brushes.White,
-        };
-        TextInputService.EnableIme(textBox);
-        textBox.KeyDown += async (_, e) =>
-        {
-            if (e.Key == Key.Enter && !TextInputService.IsImeComposing(textBox))
-            {
-                e.Handled = true;
-                await CommitInlineAddAsync(textBox);
-            }
-            else if (e.Key == Key.Escape)
-            {
-                e.Handled = true;
-                await CancelInlineAddAsync();
-            }
-        };
-        textBox.LostKeyboardFocus += async (_, _) =>
-        {
-            if (_inlineAddTextBox != textBox)
-            {
-                return;
-            }
-
-            if (_suppressInlineAddLostFocus || TextInputService.IsImeComposing(textBox))
-            {
-                return;
-            }
-
-            await CommitInlineAddAsync(textBox);
-        };
+        var textBox = InlineDraftEditor.CreateAddInput(this);
+        var draft = new InlineDraftController();
+        InlineDraftEditor.BindAddInput(textBox, draft,
+            () => CommitInlineAddAsync(textBox, draft), () => CancelInlineAddAsync(textBox, draft));
+        _inlineAddDraft = draft;
         _inlineAddTextBox = textBox;
         Grid.SetColumn(textBox, 1);
         row.Children.Add(textBox);
@@ -454,39 +379,30 @@ public partial class SingleBoardWindow : Window
         };
         var saveButton = MiniButton("OK", async (_, _) =>
         {
-            _suppressInlineAddLostFocus = false;
-            await CommitInlineAddAsync(textBox);
+            draft.RestoreLostFocus();
+            await CommitInlineAddAsync(textBox, draft);
         }, T("Action.Save"));
-        saveButton.PreviewMouseLeftButtonDown += (_, _) => _suppressInlineAddLostFocus = true;
+        InlineDraftEditor.SuppressLostFocusOnPress(saveButton, draft);
         actions.Children.Add(saveButton);
 
         var cancelButton = MiniButton("x", async (_, _) =>
         {
-            _suppressInlineAddLostFocus = false;
-            await CancelInlineAddAsync();
+            draft.RestoreLostFocus();
+            await CancelInlineAddAsync(textBox, draft);
         }, T("Action.Cancel"));
-        cancelButton.PreviewMouseLeftButtonDown += (_, _) => _suppressInlineAddLostFocus = true;
+        InlineDraftEditor.SuppressLostFocusOnPress(cancelButton, draft);
         actions.Children.Add(cancelButton);
         Grid.SetColumn(actions, 2);
         row.Children.Add(actions);
 
-        var card = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8, 7, 7, 7),
-            Margin = new Thickness(0, 8, 0, 0),
-            Child = row,
-        };
+        var card = TaskCardView.CreateCard(row);
         _inlineAddCard = card;
         return card;
     }
 
-    private async Task CommitInlineAddAsync(TextBox textBox)
+    private async Task CommitInlineAddAsync(TextBox textBox, InlineDraftController draft)
     {
-        if (_isSubmittingInlineAdd || _inlineAddCard is null || _inlineAddTextBox != textBox)
+        if (!draft.CanFinish || _inlineAddDraft != draft || _inlineAddCard is null || _inlineAddTextBox != textBox)
         {
             return;
         }
@@ -494,11 +410,11 @@ public partial class SingleBoardWindow : Window
         var text = textBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(text))
         {
-            await CancelInlineAddAsync();
+            await CancelInlineAddAsync(textBox, draft);
             return;
         }
 
-        _isSubmittingInlineAdd = true;
+        if (!draft.TryBeginSubmission()) return;
         try
         {
             var result = _kanban.AddTask(_board, _board.DefaultColumn, _columnHash, text);
@@ -506,7 +422,7 @@ public partial class SingleBoardWindow : Window
             {
                 _refreshGate.MarkPending();
                 GlassConfirmWindow.ShowNotice(this, T("Dialog.UpdateFailed"), result.Error ?? T("Dialog.UpdateFailed"));
-                _suppressInlineAddLostFocus = false;
+                draft.RestoreLostFocus();
                 textBox.Focus();
                 textBox.SelectAll();
                 return;
@@ -519,12 +435,13 @@ public partial class SingleBoardWindow : Window
         }
         finally
         {
-            _isSubmittingInlineAdd = false;
+            draft.ReleaseSubmission();
         }
     }
 
     private void RemoveInlineAddCard()
     {
+        _inlineAddDraft?.Complete();
         if (_inlineAddCard is not null)
         {
             TasksPanel.Children.Remove(_inlineAddCard);
@@ -532,13 +449,13 @@ public partial class SingleBoardWindow : Window
 
         _inlineAddCard = null;
         _inlineAddTextBox = null;
-        _suppressInlineAddLostFocus = false;
+        _inlineAddDraft = null;
     }
 
-    private async Task CancelInlineAddAsync()
+    private async Task CancelInlineAddAsync(TextBox textBox, InlineDraftController draft)
     {
+        if (!draft.CanFinish || _inlineAddDraft != draft || _inlineAddTextBox != textBox) return;
         RemoveInlineAddCard();
-        _isSubmittingInlineAdd = false;
         Keyboard.ClearFocus();
         _refreshGate.EndDraft();
         await RefreshAfterDraftAsync();
@@ -551,22 +468,11 @@ public partial class SingleBoardWindow : Window
         => WidgetUi.RecoveryButton(this, label, onClick);
 
     private Button TaskMenuButton(KanbanTask task)
-    {
-        var button = MiniButton("...", (_, _) => { }, "Card menu");
-        button.VerticalAlignment = VerticalAlignment.Top;
-        var menu = new ContextMenu();
-        menu.Items.Add(MenuItem(T("Action.EditCard"), (_, _) => BeginInlineEditForTask(task.Id)));
-        menu.Items.Add(MenuItem(T("Action.MoveTop"), async (_, _) => await ApplyWriteAsync(() => _kanban.MoveTaskToTop(task))));
-        menu.Items.Add(MenuItem(T("Action.Archive"), async (_, _) => await ApplyWriteAsync(() => _kanban.ArchiveTask(task))));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(MenuItem(T("Action.Delete"), async (_, _) => await DeleteTaskAsync(task)));
-        button.ContextMenu = menu;
-        button.Click += (_, _) =>
-        {
-            button.ContextMenu.IsOpen = true;
-        };
-        return button;
-    }
+        => TaskCardView.CreateMenuButton(this,
+            (_, _) => BeginInlineEditForTask(task.Id),
+            async (_, _) => await ApplyWriteAsync(() => _kanban.MoveTaskToTop(task)),
+            async (_, _) => await ApplyWriteAsync(() => _kanban.ArchiveTask(task)),
+            async (_, _) => await DeleteTaskAsync(task));
 
     private static MenuItem MenuItem(string header, RoutedEventHandler onClick)
     {
@@ -609,6 +515,7 @@ public partial class SingleBoardWindow : Window
 
         _refreshGate.BeginDraft();
         _activeInlineEditor = textBox;
+        _inlineEditDraft = new InlineDraftController();
         textBox.IsReadOnly = false;
         textBox.Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
         textBox.CaretBrush = Brushes.White;
@@ -636,6 +543,8 @@ public partial class SingleBoardWindow : Window
         textBox.Background = Brushes.Transparent;
         if (_activeInlineEditor == textBox)
         {
+            _inlineEditDraft?.Complete();
+            _inlineEditDraft = null;
             _activeInlineEditor = null;
             _refreshGate.EndDraft();
         }
@@ -645,7 +554,8 @@ public partial class SingleBoardWindow : Window
 
     private async Task CommitInlineEditAsync(KanbanTask task, TextBox textBox)
     {
-        if (_isSubmittingInlineEdit || _activeInlineEditor != textBox)
+        var draft = _inlineEditDraft;
+        if (draft is null || !draft.CanFinish || _activeInlineEditor != textBox)
         {
             return;
         }
@@ -666,7 +576,7 @@ public partial class SingleBoardWindow : Window
             return;
         }
 
-        _isSubmittingInlineEdit = true;
+        if (!draft.TryBeginSubmission()) return;
         try
         {
             var result = _kanban.RenameTask(task, text);
@@ -685,7 +595,7 @@ public partial class SingleBoardWindow : Window
         }
         finally
         {
-            _isSubmittingInlineEdit = false;
+            draft.ReleaseSubmission();
         }
     }
 

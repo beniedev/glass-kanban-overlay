@@ -183,3 +183,8 @@ Validation:
 - Removed the transitional configuration/path entry points after all production callers received explicit dependencies.
 - Fixed two review regressions: switching existing windows to the desktop captures their live layouts before changing placement, and configuration clones retain the source layout dictionary comparer without changing deep-copy or nested-null semantics.
 - Both regressions failed independently before the fix through neutral WPF windows and real save callbacks. Debug/Release builds passed with zero warnings/errors; the five related test groups (42 checks, including 18 configuration checks) and both full neutral WPF smokes passed. The smoke confirms unsaved width/opacity before the action, matching live/saved/reloaded layouts afterward, one case-insensitive JSON layout key, shared active configuration, and unchanged Markdown bytes; normal/missing-column captures and asynchronous settings checks remain intact.
+
+## Modularization: Task cards and inline drafts
+
+- Extracted passive task-card construction and inline draft input/submission helpers, retaining modal editing in the summary window and inline editing/drag ghost ownership in split windows.
+- Added draft/card test groups for Enter, Escape, focus, IME, duplicate submission, failure retention, menu callbacks, and drop feedback.
