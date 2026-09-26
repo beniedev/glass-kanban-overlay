@@ -1,11 +1,11 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DesktopOverlayBoard.Models;
 using DesktopOverlayBoard.Services;
+using DesktopOverlayBoard.UI;
 using Forms = System.Windows.Forms;
 
 namespace DesktopOverlayBoard;
@@ -16,6 +16,8 @@ public partial class SingleBoardWindow : Window
     private BoardConfig _board;
     private readonly MarkdownKanbanService _kanban;
     private readonly ConfigService _configService;
+    private readonly MissingColumnRecovery _missingColumnRecovery;
+    private readonly Func<Task> _showSettingsAsync;
     private readonly DispatcherTimer _timer;
     private readonly PendingRefreshGate _refreshGate = new();
     private readonly Dictionary<string, StackPanel> _taskActions = new();
@@ -37,12 +39,15 @@ public partial class SingleBoardWindow : Window
 
     public string BoardId => _board.Id;
 
-    public SingleBoardWindow(AppConfig config, BoardConfig board, MarkdownKanbanService kanban, ConfigService configService)
+    public SingleBoardWindow(AppConfig config, BoardConfig board, MarkdownKanbanService kanban, ConfigService configService,
+        MissingColumnRecovery missingColumnRecovery, Func<Task> showSettingsAsync)
     {
         _config = config;
         _board = board;
         _kanban = kanban;
         _configService = configService;
+        _missingColumnRecovery = missingColumnRecovery;
+        _showSettingsAsync = showSettingsAsync;
         LocalizationService.Use(_config.UiLanguage);
         InitializeComponent();
         ApplyLocalization();
@@ -173,44 +178,26 @@ public partial class SingleBoardWindow : Window
             TextWrapping = TextWrapping.Wrap,
         });
 
-        if (!IsMissingColumnGroup(group))
+        if (!MissingColumnRecovery.IsMissingColumnGroup(group))
         {
             return panel;
         }
 
         var actions = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         actions.Children.Add(RecoveryButton(T("Action.ReselectColumn"), async (_, _) =>
-            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Reselect)));
+            await RecoverMissingColumnAsync(MissingColumnRecoveryAction.Reselect)));
         actions.Children.Add(RecoveryButton(T("Action.CreateMissingColumn"), async (_, _) =>
-            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Create)));
+            await RecoverMissingColumnAsync(MissingColumnRecoveryAction.Create)));
         actions.Children.Add(RecoveryButton(T("Action.OpenSource"), async (_, _) =>
-            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.OpenSource)));
+            await RecoverMissingColumnAsync(MissingColumnRecoveryAction.OpenSource)));
         actions.Children.Add(RecoveryButton(T("Action.RemoveFromSummary"), async (_, _) =>
-            await RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction.Remove)));
+            await RecoverMissingColumnAsync(MissingColumnRecoveryAction.Remove)));
         panel.Children.Add(actions);
         return panel;
     }
 
-    private bool IsMissingColumnGroup(BoardGroup group)
+    private async Task RecoverMissingColumnAsync(MissingColumnRecoveryAction action)
     {
-        return File.Exists(group.Board.FilePath) &&
-               !string.IsNullOrWhiteSpace(group.SourceHash) &&
-               string.IsNullOrWhiteSpace(group.ColumnRangeHash);
-    }
-
-    private async Task RecoverMissingColumnAsync(MainWindow.MissingColumnRecoveryAction action)
-    {
-        var main = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
-        if (main is null)
-        {
-            if (action == MainWindow.MissingColumnRecoveryAction.OpenSource)
-            {
-                _kanban.OpenSource(_board.FilePath);
-            }
-
-            return;
-        }
-
         var group = new BoardGroup
         {
             Board = _board,
@@ -219,7 +206,7 @@ public partial class SingleBoardWindow : Window
             SourceHash = _sourceHash,
             Error = T("Error.ColumnMissing", _board.DefaultColumn),
         };
-        await main.RecoverMissingColumnAsync(group, this, action);
+        await _missingColumnRecovery.RecoverAsync(group, this, action);
     }
 
     private void DeferRefresh()
@@ -333,7 +320,7 @@ public partial class SingleBoardWindow : Window
         };
         card.PreviewMouseMove += (_, e) =>
         {
-            if (e.LeftButton == MouseButtonState.Pressed && textBox.IsReadOnly && HasMovedEnough(e.GetPosition(null), _dragStartPoint))
+            if (e.LeftButton == MouseButtonState.Pressed && textBox.IsReadOnly && WindowDrag.HasMovedEnough(e.GetPosition(null), _dragStartPoint))
             {
                 _dragTask = task;
                 ShowDragGhost(task, card);
@@ -551,34 +538,10 @@ public partial class SingleBoardWindow : Window
     }
 
     private System.Windows.Controls.Button MiniButton(string label, RoutedEventHandler onClick, string? tooltip = null)
-    {
-        var button = new System.Windows.Controls.Button
-        {
-            Content = label,
-            Padding = new Thickness(6, 2, 6, 2),
-            Margin = new Thickness(4, 0, 0, 0),
-            MinWidth = 26,
-            Height = 26,
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = tooltip,
-            Background = new SolidColorBrush(Color.FromArgb(118, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(182, 255, 255, 255)),
-            Foreground = (Brush)FindResource("PanelInk"),
-            Cursor = Cursors.Hand,
-            Style = (Style)FindResource("ToolButtonStyle"),
-        };
-        button.Click += onClick;
-        return button;
-    }
+        => WidgetUi.MiniButton(this, label, onClick, tooltip);
 
     private System.Windows.Controls.Button RecoveryButton(string label, RoutedEventHandler onClick)
-    {
-        var button = MiniButton(label, onClick);
-        button.HorizontalAlignment = HorizontalAlignment.Stretch;
-        button.Margin = new Thickness(0, 0, 0, 6);
-        button.Height = 30;
-        return button;
-    }
+        => WidgetUi.RecoveryButton(this, label, onClick);
 
     private Button TaskMenuButton(KanbanTask task)
     {
@@ -826,7 +789,7 @@ public partial class SingleBoardWindow : Window
         Width = clamped.Width;
         Height = clamped.Height;
         Opacity = 1;
-        var glass = ClampGlassOpacity(layout.Opacity);
+        var glass = WidgetUi.ClampGlassOpacity(layout.Opacity);
         ApplyGlassOpacity(glass);
         OpacitySlider.Value = glass;
         ApplyPinMode(string.IsNullOrWhiteSpace(layout.PlacementMode) ? (layout.AlwaysOnTop ? "topmost" : "desktop") : layout.PlacementMode);
@@ -854,7 +817,7 @@ public partial class SingleBoardWindow : Window
 
     private void RootGlass_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (LockMenuItem.IsChecked == true || e.ClickCount > 1 || !IsDragSurface(e.OriginalSource))
+        if (LockMenuItem.IsChecked == true || e.ClickCount > 1 || !WindowDrag.IsDragSurface(e.OriginalSource))
         {
             return;
         }
@@ -926,11 +889,8 @@ public partial class SingleBoardWindow : Window
 
     private async void ConfigureMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (System.Windows.Application.Current.MainWindow is MainWindow main)
-        {
-            await main.ShowSettingsAsync();
-            await ReloadAsync();
-        }
+        await _showSettingsAsync();
+        await ReloadAsync();
     }
 
     private void TopmostMenuItem_Click(object sender, RoutedEventArgs e)
@@ -1017,20 +977,7 @@ public partial class SingleBoardWindow : Window
     }
 
     private void ApplyGlassOpacity(double value)
-    {
-        value = ClampGlassOpacity(value);
-        var cardAlpha = (byte)Math.Round(42 + 186 * value);
-        var color = GetThemeColor(_board.WidgetTheme);
-        WidgetCard.Background = new SolidColorBrush(Color.FromArgb(cardAlpha, color.R, color.G, color.B));
-        TitleChrome.Background = Brushes.Transparent;
-        WidgetCard.BorderBrush = new SolidColorBrush(Color.FromArgb((byte)Math.Round(36 + 60 * value), 255, 255, 255));
-        RootGlass.Background = Brushes.Transparent;
-    }
-
-    private static double ClampGlassOpacity(double value)
-    {
-        return Math.Clamp(value, 0.2, 0.95);
-    }
+        => WidgetUi.ApplyGlassOpacity(WidgetCard, TitleChrome, RootGlass, value, GetThemeColor(_board.WidgetTheme));
 
     private string GetWidgetTitle()
     {
@@ -1070,27 +1017,6 @@ public partial class SingleBoardWindow : Window
         {
             // DragMove can throw if the mouse button state changed between preview and drag start.
         }
-    }
-
-    private static bool IsDragSurface(object source)
-    {
-        if (source is not DependencyObject element)
-        {
-            return false;
-        }
-
-        return FindAncestor<ButtonBase>(element) is null
-            && FindAncestor<Slider>(element) is null
-            && FindAncestor<TextBox>(element) is null
-            && FindAncestor<ScrollBar>(element) is null
-            && FindAncestor<ScrollViewer>(element) is null
-            && element is not TextBlock;
-    }
-
-    private static bool HasMovedEnough(Point current, Point start)
-    {
-        return Math.Abs(current.X - start.X) >= SystemParameters.MinimumHorizontalDragDistance ||
-               Math.Abs(current.Y - start.Y) >= SystemParameters.MinimumVerticalDragDistance;
     }
 
     private void ShowDragGhost(KanbanTask task, FrameworkElement source)
@@ -1155,32 +1081,4 @@ public partial class SingleBoardWindow : Window
         _dragGhost = null;
     }
 
-    private static T? FindAncestor<T>(DependencyObject? current)
-        where T : DependencyObject
-    {
-        while (current is not null)
-        {
-            if (current is T match)
-            {
-                return match;
-            }
-
-            current = GetParent(current);
-        }
-
-        return null;
-    }
-
-    private static DependencyObject? GetParent(DependencyObject current)
-    {
-        try
-        {
-            return VisualTreeHelper.GetParent(current)
-                ?? LogicalTreeHelper.GetParent(current);
-        }
-        catch (InvalidOperationException)
-        {
-            return LogicalTreeHelper.GetParent(current);
-        }
-    }
 }

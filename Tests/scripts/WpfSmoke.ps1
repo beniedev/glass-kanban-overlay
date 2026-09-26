@@ -114,7 +114,33 @@ try {
         Capture-Window $single ("single-" + $state) $missing
     }
 
-    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders.'
+    # The single settings event awaits its explicit callback even when the neutral
+    # Application.MainWindow is an unrelated framework Window.
+    $app.MainWindow = [System.Windows.Window]::new()
+    $callbackConfig = $configService.CreateDefault()
+    $callbackBoard = [DesktopOverlayBoard.Models.BoardConfig]::new()
+    $callbackBoard.Id = 'synthetic-settings-board'
+    $callbackBoard.FilePath = $boardFile
+    $callbackBoard.DefaultColumn = 'Missing'
+    $callbackConfig.Boards.Add($callbackBoard)
+    $script:callbackCount = 0
+    $script:settingsGate = [System.Threading.Tasks.TaskCompletionSource[bool]]::new()
+    $callback = [Func[System.Threading.Tasks.Task]] {
+        $script:callbackCount++
+        return $script:settingsGate.Task
+    }
+    $recovery = $main.GetType().GetField('_missingColumnRecovery', $flags).GetValue($main)
+    $settingsWindow = [DesktopOverlayBoard.SingleBoardWindow]::new($callbackConfig, $callbackBoard, $kanban, $configService, $recovery, $callback)
+    [System.Threading.SynchronizationContext]::SetSynchronizationContext([System.Windows.Threading.DispatcherSynchronizationContext]::new())
+    $settingsWindow.GetType().GetMethod('ConfigureMenuItem_Click', $flags).Invoke($settingsWindow, [object[]]@($settingsWindow, [System.Windows.RoutedEventArgs]::new()))
+    if ($script:callbackCount -ne 1 -or $settingsWindow.FindName('TasksPanel').Children.Count -ne 0) {
+        throw 'Settings callback was not awaited exactly once before reload.'
+    }
+    $callbackBoard.DefaultColumn = 'TODO'
+    $script:settingsGate.SetResult($true)
+    Wait-Ui { -not [string]::IsNullOrEmpty($settingsWindow.GetType().GetField('_columnHash', $flags).GetValue($settingsWindow)) }
+    if ($settingsWindow.FindName('TasksPanel').Children.Count -ne 1) { throw 'Settings callback did not reload the selected column.' }
+    Write-Output 'Neutral WPF synthetic smoke passed: normal/missing two-window renders and asynchronous settings event.'
     Write-Output ("Artifacts: " + $artifactRoot)
 } finally {
     try {

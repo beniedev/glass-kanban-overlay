@@ -7,6 +7,8 @@ internal static class TestRunner
     private static readonly Group[] Groups =
     [
         new("markdown", root => RunSync(() => MarkdownKanbanTests.Run(root))),
+        new("recovery", MissingColumnRecoveryTests.RunAsync),
+        new("widget-ui", _ => RunSync(WidgetUiTests.Run)),
         new("config", root => RunSync(() => ConfigTests.Run(root))),
         new("window-state", root => RunSync(() => WindowStateTests.Run(root))),
         new("runtime", root => RunSync(() => RuntimeContractTests.Run(root))),
