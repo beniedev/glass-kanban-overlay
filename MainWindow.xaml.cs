@@ -6,14 +6,18 @@ using System.Windows.Threading;
 using DesktopOverlayBoard.Models;
 using DesktopOverlayBoard.Services;
 using DesktopOverlayBoard.UI;
+using DesktopOverlayBoard.Application;
 using Forms = System.Windows.Forms;
 
 namespace DesktopOverlayBoard;
 
 public partial class MainWindow : Window
 {
-    private readonly ConfigService _configService = new();
-    private readonly MarkdownKanbanService _kanban = new();
+    private readonly ConfigService _configService;
+    private readonly MarkdownKanbanService _kanban;
+    private readonly StartupService _startup;
+    private readonly SettingsWorkflow _settingsWorkflow;
+    private readonly BoardSetupWorkflow _boardSetup;
     private readonly MissingColumnRecovery _missingColumnRecovery;
     private readonly DispatcherTimer _refreshTimer;
     private readonly Dictionary<string, DateTime> _lastWrites = new(StringComparer.OrdinalIgnoreCase);
@@ -26,17 +30,26 @@ public partial class MainWindow : Window
     private TextBox? _inlineAddTextBox;
     private bool _isSubmittingInlineAdd;
     private bool _suppressInlineAddLostFocus;
-    private AppConfig _config = new();
+    private AppConfig _config;
     private bool _loaded;
     private bool _exitRequested;
     private bool _hideAfterInitialLoad;
     private bool _launchedFromStartup;
+    private bool _settingsOpen;
+    private bool _applyingLayout;
+    private StartupApplyResult? _startupResult;
 
-    public MainWindow()
+    public MainWindow(AppConfig config, ConfigService configService,
+        MarkdownKanbanService kanban, StartupService startup)
     {
-        _config = _configService.Load();
+        _config = config;
+        _configService = configService;
+        _kanban = kanban;
+        _startup = startup;
+        _settingsWorkflow = new SettingsWorkflow(_configService.Save, _startup.ApplyStartWithWindows);
+        _boardSetup = new BoardSetupWorkflow(_kanban);
         _missingColumnRecovery = new MissingColumnRecovery(
-            _kanban, () => _config, _configService.Save,
+            _kanban, () => _config.Clone(), CommitCandidate,
             ReloadAllWindowsAsync, RemoveBoardFromSummaryAsync);
         LocalizationService.Use(_config.UiLanguage);
         InitializeComponent();
@@ -59,11 +72,13 @@ public partial class MainWindow : Window
         _launchedFromStartup = launchedFromStartup;
     }
 
+    public void SetStartupResult(StartupApplyResult result) => _startupResult = result;
+
     private static string T(string key, params object?[] args) => LocalizationService.Text(key, args);
 
-    private static System.Drawing.Icon LoadAppIcon()
+    private System.Drawing.Icon LoadAppIcon()
     {
-        var iconPath = Path.Combine(AppPaths.RootDirectory, "Assets", "glass-board.ico");
+        var iconPath = Path.Combine(_configService.Paths.RootDirectory, "Assets", "glass-board.ico");
         if (File.Exists(iconPath))
         {
             return new System.Drawing.Icon(iconPath);
@@ -129,6 +144,11 @@ public partial class MainWindow : Window
         await ReloadAsync();
         RestoreOpenBoardWindows();
         _refreshTimer.Start();
+        if (_startupResult is { Success: false } startupFailure)
+        {
+            GlassConfirmWindow.ShowNotice(this, T("Dialog.SystemSettingFailed"),
+                T("Message.StartupApplyFailed", startupFailure.Error));
+        }
         if (_hideAfterInitialLoad)
         {
             HideSummaryWindow();
@@ -169,13 +189,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        SaveLayout();
-        _configService.Save(_config);
+        var candidate = _config.Clone();
+        CaptureWindowLayouts(candidate);
+        if (!TryCommitCandidate(candidate))
+        {
+            e.Cancel = true;
+            _exitRequested = false;
+            return;
+        }
         foreach (var window in _singleWindows.ToList())
         {
-            window.Close();
+            window.CloseWithoutSaving();
         }
 
+        _refreshTimer.Stop();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         _appIcon.Dispose();
@@ -183,44 +210,119 @@ public partial class MainWindow : Window
 
     private void ApplyLayout()
     {
-        var layout = _config.SummaryWindow;
-        var width = Math.Max(layout.Width, 760);
-        var height = Math.Max(layout.Height, 480);
-        var workingAreas = Forms.Screen.AllScreens.Select(screen => new Rect(
-            screen.WorkingArea.Left,
-            screen.WorkingArea.Top,
-            screen.WorkingArea.Width,
-            screen.WorkingArea.Height));
-        var clamped = WindowPlacementService.ClampToVisibleWorkingArea(
-            new Rect(layout.Left, layout.Top, width, height),
-            workingAreas);
-        layout.Left = clamped.Left;
-        layout.Top = clamped.Top;
-        layout.Width = clamped.Width;
-        layout.Height = clamped.Height;
-        Left = clamped.Left;
-        Top = clamped.Top;
-        Width = clamped.Width;
-        Height = clamped.Height;
-        Opacity = 1;
-        var glass = WidgetUi.ClampGlassOpacity(layout.Opacity);
-        ApplyGlassOpacity(glass);
-        OpacitySlider.Value = glass;
-        LockCheckBox.IsChecked = layout.Locked;
-        ApplyPinMode(string.IsNullOrWhiteSpace(layout.PlacementMode) ? (layout.AlwaysOnTop ? "topmost" : "desktop") : layout.PlacementMode);
-        ApplyLockState(layout.Locked);
+        _applyingLayout = true;
+        try
+        {
+            var layout = _config.SummaryWindow;
+            var width = Math.Max(layout.Width, 760);
+            var height = Math.Max(layout.Height, 480);
+            var workingAreas = Forms.Screen.AllScreens.Select(screen => new Rect(
+                screen.WorkingArea.Left,
+                screen.WorkingArea.Top,
+                screen.WorkingArea.Width,
+                screen.WorkingArea.Height));
+            var clamped = WindowPlacementService.ClampToVisibleWorkingArea(
+                new Rect(layout.Left, layout.Top, width, height),
+                workingAreas);
+            Left = clamped.Left;
+            Top = clamped.Top;
+            Width = clamped.Width;
+            Height = clamped.Height;
+            Opacity = 1;
+            var glass = WidgetUi.ClampGlassOpacity(layout.Opacity);
+            ApplyGlassOpacity(glass);
+            OpacitySlider.Value = glass;
+            LockCheckBox.IsChecked = layout.Locked;
+            ApplyPinMode(string.IsNullOrWhiteSpace(layout.PlacementMode) ? (layout.AlwaysOnTop ? "topmost" : "desktop") : layout.PlacementMode);
+            ApplyLockState(layout.Locked);
+        }
+        finally { _applyingLayout = false; }
     }
 
-    private void SaveLayout()
+    private WindowLayout CaptureLayout() => new()
     {
-        _config.SummaryWindow.Left = Left;
-        _config.SummaryWindow.Top = Top;
-        _config.SummaryWindow.Width = Width;
-        _config.SummaryWindow.Height = Height;
-        _config.SummaryWindow.Opacity = OpacitySlider.Value;
-        _config.SummaryWindow.AlwaysOnTop = Topmost;
-        _config.SummaryWindow.PlacementMode = GetCurrentPlacementMode();
-        _config.SummaryWindow.Locked = LockCheckBox.IsChecked == true;
+        Left = Left, Top = Top, Width = Width, Height = Height,
+        Opacity = OpacitySlider.Value, AlwaysOnTop = Topmost,
+        PlacementMode = GetCurrentPlacementMode(), Locked = LockCheckBox.IsChecked == true,
+    };
+
+    private void CaptureWindowLayouts(AppConfig candidate)
+    {
+        candidate.SummaryWindow = CaptureLayout();
+        foreach (var window in _singleWindows)
+        {
+            if (candidate.Boards.Any(board => board.Enabled &&
+                string.Equals(board.Id, window.BoardId, StringComparison.OrdinalIgnoreCase)))
+            {
+                candidate.BoardWindows[window.BoardId] = window.CaptureLayout();
+            }
+        }
+        candidate.OpenBoardWindowIds = _config.OpenBoardWindowIds.ToList();
+    }
+
+    private void CommitCandidate(AppConfig candidate)
+    {
+        _configService.Save(candidate);
+        PublishConfig(candidate);
+    }
+
+    private void PublishConfig(AppConfig candidate)
+    {
+        var previousLanguage = _config.UiLanguage;
+        _config = candidate;
+        foreach (var window in _singleWindows.ToList())
+        {
+            var board = _config.Boards.FirstOrDefault(board => board.Enabled &&
+                string.Equals(board.Id, window.BoardId, StringComparison.OrdinalIgnoreCase));
+            if (board is not null) window.ApplyConfig(_config, board);
+            else window.CloseWithoutSaving();
+        }
+        if (!string.Equals(previousLanguage, _config.UiLanguage, StringComparison.OrdinalIgnoreCase))
+        {
+            LocalizationService.Use(_config.UiLanguage);
+            ApplyLocalization();
+        }
+    }
+
+    private bool TryCommitCandidate(AppConfig candidate, Window? owner = null)
+    {
+        try { CommitCandidate(candidate); return true; }
+        catch (Exception error)
+        {
+            LogService.Error(error, "Configuration update failed.");
+            GlassConfirmWindow.ShowNotice(owner ?? this, T("Dialog.WriteFailed"),
+                T("Message.ConfigurationSaveFailed", error.Message));
+            return false;
+        }
+    }
+
+    private bool SaveLayout()
+    {
+        if (!_loaded || _applyingLayout) return true;
+        var candidate = _config.Clone();
+        candidate.SummaryWindow = CaptureLayout();
+        if (TryCommitCandidate(candidate)) return true;
+        ApplyLayout();
+        return false;
+    }
+
+    private void SaveBoardLayout(string boardId, WindowLayout layout)
+    {
+        var candidate = _config.Clone();
+        if (!candidate.Boards.Any(board => board.Enabled &&
+            string.Equals(board.Id, boardId, StringComparison.OrdinalIgnoreCase))) return;
+        candidate.BoardWindows[boardId] = layout;
+        CommitCandidate(candidate);
+    }
+
+    private void UpdateBoard(string boardId, Action<BoardConfig> edit)
+    {
+        var candidate = _config.Clone();
+        var board = candidate.Boards.FirstOrDefault(board => board.Enabled &&
+            string.Equals(board.Id, boardId, StringComparison.OrdinalIgnoreCase));
+        if (board is null) return;
+        edit(board);
+        CommitCandidate(candidate);
     }
 
     private async void RefreshTimer_Tick(object? sender, EventArgs e)
@@ -479,10 +581,15 @@ public partial class MainWindow : Window
         return panel;
     }
 
-    public Task RecoverMissingColumnAsync(
+    public async Task RecoverMissingColumnAsync(
         BoardGroup group, Window owner, MissingColumnRecoveryAction action)
     {
-        return _missingColumnRecovery.RecoverAsync(group, owner, action);
+        try { await _missingColumnRecovery.RecoverAsync(group, owner, action); }
+        catch (Exception error)
+        {
+            LogService.Error(error, "Missing column recovery did not complete.");
+            GlassConfirmWindow.ShowNotice(owner, T("Dialog.UpdateFailed"), T("Message.OperationFailed", error.Message));
+        }
     }
 
     private async Task RemoveBoardFromSummaryAsync(BoardConfig board, Window owner)
@@ -497,17 +604,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        foreach (var window in _singleWindows
-                     .Where(x => string.Equals(x.BoardId, board.Id, StringComparison.OrdinalIgnoreCase))
-                     .ToList())
-        {
-            window.CloseWithoutSaving();
-        }
-
-        if (_configService.RemoveBoardView(_config, board.Id))
-        {
-            _configService.Save(_config);
-        }
+        var candidate = _config.Clone();
+        if (_configService.RemoveBoardView(candidate, board.Id) && !TryCommitCandidate(candidate, owner)) return;
         await ReloadAllWindowsAsync();
     }
 
@@ -864,8 +962,8 @@ public partial class MainWindow : Window
             return existing;
         }
 
-        var window = new SingleBoardWindow(_config, board, _kanban, _configService,
-            _missingColumnRecovery, () => ShowSettingsAsync());
+        var window = new SingleBoardWindow(_config, board, _kanban,
+            _missingColumnRecovery, () => ShowSettingsAsync(), SaveBoardLayout, UpdateBoard);
         window.Closed += (_, _) =>
         {
             _singleWindows.Remove(window);
@@ -896,24 +994,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RememberOpenBoardWindow(string boardId, bool save = true)
+    private void RememberOpenBoardWindow(string boardId)
     {
-        if (_config.OpenBoardWindowIds.Any(x => string.Equals(x, boardId, StringComparison.OrdinalIgnoreCase)))
-        {
-            return;
-        }
-
-        _config.OpenBoardWindowIds.Add(boardId);
-        if (save)
-        {
-            _configService.Save(_config);
-        }
+        if (_config.OpenBoardWindowIds.Any(x => string.Equals(x, boardId, StringComparison.OrdinalIgnoreCase))) return;
+        var candidate = _config.Clone();
+        candidate.OpenBoardWindowIds.Add(boardId);
+        TryCommitCandidate(candidate);
     }
 
     private void ForgetOpenBoardWindow(string boardId)
     {
-        _config.OpenBoardWindowIds.RemoveAll(x => string.Equals(x, boardId, StringComparison.OrdinalIgnoreCase));
-        _configService.Save(_config);
+        if (!_config.OpenBoardWindowIds.Any(x => string.Equals(x, boardId, StringComparison.OrdinalIgnoreCase))) return;
+        var candidate = _config.Clone();
+        candidate.OpenBoardWindowIds.RemoveAll(x => string.Equals(x, boardId, StringComparison.OrdinalIgnoreCase));
+        TryCommitCandidate(candidate);
     }
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -931,43 +1025,25 @@ public partial class MainWindow : Window
         await ShowSettingsAsync(SettingsLaunchAction.AddExistingBoard);
     }
 
-    public async Task ShowSettingsAsync(SettingsLaunchAction launchAction = SettingsLaunchAction.None)
+    public Task ShowSettingsAsync(SettingsLaunchAction launchAction = SettingsLaunchAction.None)
     {
-        var working = _config.Clone();
-        var dialog = new SettingsWindow(working, _kanban, launchAction);
-        if (IsVisible)
+        if (_settingsOpen) return Task.CompletedTask;
+        _settingsOpen = true;
+        try
         {
-            dialog.Owner = this;
+            var dialog = new SettingsWindow(_config, _kanban, _boardSetup, CommitSettingsAsync,
+                _startup.ReadStartWithWindows(), launchAction);
+            if (IsVisible) dialog.Owner = this;
+            dialog.ShowDialog();
         }
+        finally { _settingsOpen = false; }
+        return Task.CompletedTask;
+    }
 
-        if (dialog.ShowDialog() == true)
-        {
-            SaveLayout();
-            var previousLanguage = _config.UiLanguage;
-            _config = working;
-            if (!string.Equals(previousLanguage, _config.UiLanguage, StringComparison.OrdinalIgnoreCase))
-            {
-                LocalizationService.Use(_config.UiLanguage);
-                ApplyLocalization();
-            }
-
-            _configService.Save(_config);
-            await ReloadAsync();
-
-            foreach (var window in _singleWindows.ToList())
-            {
-                var updatedBoard = _config.Boards.FirstOrDefault(b => b.Id == window.BoardId);
-                if (updatedBoard != null && updatedBoard.Enabled)
-                {
-                    window.ApplyConfig(_config, updatedBoard);
-                    await window.ReloadAsync();
-                }
-                else
-                {
-                    window.CloseWithoutSaving();
-                }
-            }
-        }
+    private Task<SettingsCommitResult> CommitSettingsAsync(AppConfig draft)
+    {
+        CaptureWindowLayouts(draft);
+        return _settingsWorkflow.CommitAsync(draft, PublishConfig, ReloadAllWindowsAsync);
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -997,21 +1073,25 @@ public partial class MainWindow : Window
 
     private void OpenAllBoardsToDesktop()
     {
-        foreach (var board in _config.Boards.Where(x => x.Enabled))
+        var candidate = _config.Clone();
+        CaptureWindowLayouts(candidate);
+        foreach (var board in candidate.Boards.Where(board => board.Enabled))
         {
-            if (!_config.BoardWindows.TryGetValue(board.Id, out var layout))
+            if (!candidate.BoardWindows.TryGetValue(board.Id, out var layout))
             {
                 layout = WindowLayout.Default(420, 580, 0.78);
-                _config.BoardWindows[board.Id] = layout;
+                candidate.BoardWindows[board.Id] = layout;
             }
-
             layout.AlwaysOnTop = false;
             layout.PlacementMode = "desktop";
-            RememberOpenBoardWindow(board.Id, save: false);
-            OpenSingleWindow(board, rememberOpenState: false).SetDesktopMode();
+            if (!candidate.OpenBoardWindowIds.Contains(board.Id, StringComparer.OrdinalIgnoreCase))
+                candidate.OpenBoardWindowIds.Add(board.Id);
         }
-
-        _configService.Save(_config);
+        if (!TryCommitCandidate(candidate)) return;
+        foreach (var board in _config.Boards.Where(board => board.Enabled))
+        {
+            OpenSingleWindow(board, rememberOpenState: false).RestoreSavedPlacement();
+        }
         HideSummaryWindow();
     }
 
@@ -1025,8 +1105,7 @@ public partial class MainWindow : Window
 
     private void HideSummaryWindow()
     {
-        SaveLayout();
-        _configService.Save(_config);
+        if (!SaveLayout()) return;
         Hide();
         ShowInTaskbar = false;
     }
@@ -1081,8 +1160,7 @@ public partial class MainWindow : Window
     private void LockCheckBox_Changed(object sender, RoutedEventArgs e)
     {
         ApplyLockState(LockCheckBox.IsChecked == true);
-        SaveLayout();
-        _configService.Save(_config);
+        if (_loaded) SaveLayout();
     }
 
     private async void OpenDefaultSourceMenuItem_Click(object sender, RoutedEventArgs e)
@@ -1100,21 +1178,18 @@ public partial class MainWindow : Window
     {
         ApplyPinMode("topmost");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void NormalMenuItem_Click(object sender, RoutedEventArgs e)
     {
         ApplyPinMode("normal");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void DesktopMenuItem_Click(object sender, RoutedEventArgs e)
     {
         ApplyPinMode("desktop");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void LockMenuItem_Click(object sender, RoutedEventArgs e)
@@ -1177,7 +1252,6 @@ public partial class MainWindow : Window
         {
             DragMove();
             SaveLayout();
-            _configService.Save(_config);
             if (!Topmost)
             {
                 WindowPlacementService.ApplyPlacementMode(this, GetCurrentPlacementMode());
