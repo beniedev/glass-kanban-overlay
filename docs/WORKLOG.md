@@ -1,5 +1,26 @@
 # Worklog
 
+## 2026-09-26 Module Boundaries And Failure Handling
+
+- Extracted the missing-column workflow into `MissingColumnRecovery`, shared by the summary and single-board windows. The single-board recovery path no longer locates a `MainWindow` through the global window collection.
+- Kept configuration saving, board-view removal and window refresh ownership in the main window, and retained the Markdown service's existing conflict and write guards. The workflow reads the current configuration after column selection so a replaced configuration is not captured permanently.
+- Added direct workflow tests for cancellation, configuration replacement, missing board identity, save/read failures, empty columns, creation conflicts and removal delegation. All fixtures use the test runner's temporary directory.
+- Debug and Release solution builds passed with zero warnings and errors; the existing executable test suite and new recovery tests passed in both configurations.
+- A local WPF smoke host loaded the product resources and compiled summary/single-board windows with synthetic data. Both missing-column panels rendered and were captured for visual inspection. This checks window construction and rendering, not packaged application startup or startup registration.
+- Split the executable tests into selectable groups and versioned the neutral WPF smoke and portable-packaging failure checks. The package builder now stops on any nonzero build/test/publish exit code, while retaining its existing output and private-file guards.
+- Resolve paths and load configuration once in the composition root. Extracted the pure normalizer and atomic same-directory save. Malformed or locked configuration remains intact; synthetic tests cover partial writes, failed replacement, races, and cleanup failure.
+- Main owns the active configuration. Settings and board setup use detached candidates; single-board layout and appearance changes return through explicit callbacks. Persistence precedes publication to retained windows, startup registration, and asynchronous refresh. The settings result distinguishes saved configuration from failed system or refresh effects. New Markdown files survive later configuration-save failures.
+- Extracted the common Markdown write transaction shell, retaining operation-specific full/column hashes, original-line checks, source-handle lifetime, and publication order. New fault cases cover busy/abandoned locks, read/replace failures, blocked paths, and newline/EOF preservation. New-board creation remains separate.
+- Shared the passive task-card view, inline-add editor, and per-draft submission state. Summary modal editing and single-board inline editing/drag ghosts remain window-owned.
+- Added one refresh coordinator per window: a single active read, one merged pending request, explicit applied/deferred/failed/closed results, and target/draft-version checks before rendering. Closing a window settles waiters and prevents delayed startup or refresh work from restarting its timer.
+- Deferred refresh preserves card input and lets the modal settings dialog finish after saving. A changed draft target refuses submission without losing input; same-target appearance changes remain compatible. UI refresh observers report deferred and failed results without letting them escape asynchronous menu events.
+
+Final validation:
+
+- Debug and Release solution builds passed with zero warnings and errors; all 12 executable test groups passed in both configurations. Refresh coverage includes four controlled characterizations of the previous algorithm and 14 coordinator scenarios. The modal completion regression executes the production completion closure with controlled reads, rather than simulating a real user's modal interaction.
+- The versioned neutral WPF smoke passed in both configurations: summary/single normal and missing-column views, the same input retained during deferred refresh, Escape consuming the pending refresh without changing Markdown, and an awaited settings callback. All eight screenshots were captured; the final Release views were visually inspected.
+- All eight synthetic portable-packaging cases passed during the packaging change. This did not publish a package. Real application startup, startup registration, installation, OS drag behavior, and physical IME input were not exercised by these checks.
+
 ## 2026-08-30 v0.2.0 First Public Release
 
 - Set the app version to `0.2.0` for the first public tagged release.
@@ -159,35 +180,3 @@ Validation:
  - Note: publish against the repo root (with `DesktopOverlayBoard.sln`) also pulls in the Tests project and writes `DesktopOverlayBoard.Tests.*` into `dist`; publish the csproj instead to keep `dist` clean:
    `dotnet publish DesktopOverlayBoard.csproj -c Release -r win-x64 --self-contained false -o dist`
 - Removed stray `DesktopOverlayBoard.Tests.*` files that the solution-level publish had written into `dist`.
-
-## Modularization: Grouped verification and release packaging
-
-- Moved the original 21 executable checks into Markdown (13), configuration (3), window state (3), and runtime (2) groups, with a shared assertion helper and group selection.
-- Portable packaging stops immediately on failed build, test, or publish and refuses existing output targets. Its eight packaging scenarios use a synthetic dotnet command.
-- Added a versioned WPF smoke using only a framework Application and synthetic board/configuration data; it renders both windows without invoking product startup or registry operations.
-
-## Modularization: Missing-column recovery and shared widget UI
-
-- Extracted missing-column recovery into an explicitly injected workflow shared by both windows; settings callbacks are passed directly to the split window.
-- Shared widget helpers preserve window-local resources, glass opacity, button construction, drag hit testing, and movement thresholds.
-
-## Modularization: Configuration foundation
-
-- Configuration services capture explicit paths, share a pure normalizer, and publish configuration via a temporary file and atomic replacement.
-- Retained transitional default-path and parameterless configuration entry points for existing window/application callers. Tests use fixed synthetic paths and explicit log initialization.
-
-## Modularization: Settings and window configuration ownership
-
-- Application composition initializes paths and loads configuration once. MainWindow owns saved configuration publication and passes layout/settings/board callbacks to split windows.
-- Settings and board setup workflows distinguish persistence, window publication, startup-setting, and refresh failures; a created Markdown file remains available when configuration saving fails.
-- Removed the transitional configuration/path entry points after all production callers received explicit dependencies.
-
-## Modularization: Task cards and inline drafts
-
-- Extracted passive task-card construction and inline draft input/submission helpers, retaining modal editing in the summary window and inline editing/drag ghost ownership in split windows.
-- Added draft/card test groups for Enter, Escape, focus, IME, duplicate submission, failure retention, menu callbacks, and drop feedback.
-
-## Modularization: Per-window refresh coordination
-
-- Each window now coordinates one read in flight and one coalesced pending refresh, with target/configuration/draft guards and closed-window handling.
-- Deferred refresh is reported separately from success/failure, so settings can finish while active drafts retain their exact editor and text. Draft completion consumes pending refresh.

@@ -186,6 +186,8 @@ dotnet build .\DesktopOverlayBoard.sln
 dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj
 ```
 
+The runner accepts `-- --list` to list groups and `-- --group config` to run one group. Omitting arguments runs all groups. The optional smoke scripts use PowerShell 7 (`pwsh`). For neutral WPF rendering with synthetic boards, use `pwsh -STA -File .\Tests\scripts\WpfSmoke.ps1 -Configuration Debug` after building that configuration. It saves screenshots under ignored `TestResults` and does not run product startup or change startup registration. Packaging failure cases run separately with `pwsh -File .\Tests\scripts\Test-PortableRelease.ps1`.
+
 Launch from source or an existing local build:
 
 ```powershell
@@ -198,7 +200,7 @@ Create a fresh self-contained win-x64 portable candidate:
 powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
 ```
 
-The packaging script refuses to overwrite an existing candidate. It builds and tests the app, publishes a self-contained executable, includes the license, notice, and both README languages, then creates a zip. It never packages local configuration or logs and does not replace the flat local dogfood executable.
+The packaging script refuses to overwrite an existing candidate. It builds and tests the app, publishes a self-contained executable, includes the license, notice, and both README languages, then creates a zip. A failed build, test, or publish stops the script before later steps. It never packages local configuration or logs and does not replace the flat local dogfood executable.
 
 ## Local configuration
 
@@ -209,6 +211,12 @@ Data\config.json
 ```
 
 This file is ignored because it contains machine-specific paths. Use [`Data/config.sample.json`](Data/config.sample.json) for public examples. Tests create temporary neutral board files and do not depend on a maintainer's vault.
+
+Configuration paths are resolved once at startup. Saving uses a temporary file in the same directory and an atomic replacement; a failed write leaves the previous configuration intact. A malformed or unreadable configuration produces a visible startup error and is not overwritten with defaults.
+
+Settings are edited as a separate draft. After a successful save, both window types receive the saved configuration before Windows startup registration is applied. If registration fails, the app reports that the configuration was saved but the system setting was not applied. If a new Markdown board was created before configuration saving failed, the file is kept and the dialog identifies it.
+
+Refreshing during card editing preserves the input and waits until editing ends. Settings can still be saved: the dialog reports that refreshing is deferred. If the board, file, or column changes while a draft is open, submitting it is refused; cancel the draft to refresh the view. Read failures remain visible, and late reads cannot replace a newer target or update a closed window.
 
 ## Limits
 
@@ -228,13 +236,21 @@ glass-kanban-overlay\
   MainWindow.xaml(.cs)              summary window, tray, split-widget orchestration
   SingleBoardWindow.xaml(.cs)       one board column as a desktop widget
   SettingsWindow.xaml(.cs)          board setup, language, and startup settings
+  Application\*.cs                 settings/setup workflows, refresh and draft state
+  UI\*.cs                          shared card/input views and widget interactions
   Services\MarkdownKanbanService.cs Markdown parsing and write-safety boundary
+  Services\MarkdownWriteTransaction.cs shared lock, read, and error handling
+  Services\MissingColumnRecovery.cs missing-column recovery workflow
   Services\LocalizationService.cs   English and Simplified Chinese interface text
-  Services\ConfigService.cs         configuration loading, saving, and migration
+  Services\ConfigService.cs         loading and atomic configuration saving
+  Services\ConfigNormalizer.cs      pure compatibility normalization
+  Services\AppPaths.cs              paths resolved once at startup
   Services\SingleInstanceService.cs one-instance mutex and activation signal
   Services\WindowPlacementService.cs window modes and display-area recovery
   Models\*.cs                       configuration and Kanban data models
-  Tests\Program.cs                  service-level regression tests
+  Tests\TestRunner.cs               selectable regression groups
+  Tests\*Tests.cs                   behavior and failure tests by responsibility
+  Tests\scripts\                   synthetic WPF and packaging checks
   Data\config.sample.json           public sample configuration
   docs\assets\                     public-safe preview image
   scripts\New-PortableRelease.ps1  portable candidate builder

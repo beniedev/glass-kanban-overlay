@@ -186,6 +186,8 @@ dotnet build .\DesktopOverlayBoard.sln
 dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj
 ```
 
+测试入口支持 `-- --list` 列出分组，或 `-- --group config` 运行一个分组；不传参数时运行全部。可选smoke脚本使用PowerShell 7（`pwsh`）。构建对应配置后，可用 `pwsh -STA -File .\Tests\scripts\WpfSmoke.ps1 -Configuration Debug` 运行合成看板的中性WPF渲染检查，截图保存在忽略的 `TestResults`，不执行产品启动流程或修改启动项。打包失败案例单独运行 `pwsh -File .\Tests\scripts\Test-PortableRelease.ps1`。
+
 从源码或已有本地构建启动：
 
 ```powershell
@@ -198,7 +200,7 @@ dotnet run --project .\Tests\DesktopOverlayBoard.Tests.csproj
 powershell -ExecutionPolicy Bypass -File .\scripts\New-PortableRelease.ps1
 ```
 
-打包脚本拒绝覆盖已有候选包。它会构建并测试应用、发布自包含程序、加入许可证、NOTICE 和中英文 README，然后生成 zip。脚本不会打包本地配置或日志，也不会替换当前平铺的本地试用程序。
+打包脚本拒绝覆盖已有候选包。它会构建并测试应用、发布自包含程序、加入许可证、NOTICE 和中英文 README，然后生成 zip；构建、测试或发布任一步失败都会立即停止后续步骤。脚本不会打包本地配置或日志，也不会替换当前平铺的本地试用程序。
 
 ## 本地配置
 
@@ -209,6 +211,12 @@ Data\config.json
 ```
 
 该文件包含机器相关路径，因此不会提交到仓库。公开示例请使用 [`Data/config.sample.json`](Data/config.sample.json)。测试会创建临时的中性看板文件，不依赖维护者的真实仓库。
+
+配置路径在启动时固定。保存通过同目录临时文件和原子替换完成，写入失败时旧配置保持完整。配置损坏或无法读取时会显示启动错误，不会用默认值覆盖原文件。
+
+设置先在独立草稿中编辑；保存成功后，两种窗口先接收同一份新配置，再应用Windows启动项。启动项失败时会明确提示“配置已保存，但系统设置未生效”。若新Markdown看板已创建、随后配置保存失败，文件会保留，设置窗口会说明它的位置。
+
+编辑卡片期间刷新会保留输入，等编辑结束再执行。此时仍可保存设置，设置窗口会说明刷新已延期。如果草稿打开期间看板、文件或列已变化，提交会被拒绝；取消草稿后即可刷新视图。读取失败会显示错误，迟到的读取不能覆盖新目标或更新已关闭的窗口。
 
 ## 当前限制
 
@@ -228,13 +236,21 @@ glass-kanban-overlay\
   MainWindow.xaml(.cs)              汇总窗口、托盘和分窗调度
   SingleBoardWindow.xaml(.cs)       单个看板列桌面组件
   SettingsWindow.xaml(.cs)          看板、语言和启动设置
+  Application\*.cs                 设置/添加工作流、刷新和草稿状态
+  UI\*.cs                          共用卡片/输入视图和组件交互
   Services\MarkdownKanbanService.cs Markdown 解析和写入安全边界
+  Services\MarkdownWriteTransaction.cs 共用锁、读取和错误处理
+  Services\MissingColumnRecovery.cs 缺失列恢复工作流
   Services\LocalizationService.cs   英文和简体中文界面文案
-  Services\ConfigService.cs         配置加载、保存和迁移
+  Services\ConfigService.cs         配置加载和原子保存
+  Services\ConfigNormalizer.cs      纯兼容规范化
+  Services\AppPaths.cs              启动时固定的数据路径
   Services\SingleInstanceService.cs 单实例互斥与唤起信号
   Services\WindowPlacementService.cs 窗口模式和显示区域恢复
   Models\*.cs                       配置和 Kanban 数据模型
-  Tests\Program.cs                  服务层回归测试
+  Tests\TestRunner.cs               可选择的回归分组
+  Tests\*Tests.cs                   按职责划分的行为和故障测试
+  Tests\scripts\                   合成 WPF 和打包检查
   Data\config.sample.json           公开配置示例
   docs\assets\                     可公开的预览图
   scripts\New-PortableRelease.ps1  便携候选包生成脚本
