@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using DesktopOverlayBoard.Models;
 using DesktopOverlayBoard.Services;
+using DesktopOverlayBoard.Application;
 using Microsoft.Win32;
 
 namespace DesktopOverlayBoard;
@@ -20,19 +21,29 @@ public partial class SettingsWindow : Window
 {
     private readonly AppConfig _config;
     private readonly MarkdownKanbanService _kanban;
+    private readonly BoardSetupWorkflow _setup;
+    private readonly Func<AppConfig, Task<SettingsCommitResult>> _commit;
+    private readonly StartupReadResult _startupRead;
+    private readonly List<string> _createdFiles = new();
+    private bool _saving;
     private readonly SettingsLaunchAction _launchAction;
     private bool _updating;
     private bool _launchActionStarted;
 
     public SettingsWindow(
         AppConfig config,
-        MarkdownKanbanService kanban,
+        MarkdownKanbanService kanban, BoardSetupWorkflow setup,
+        Func<AppConfig, Task<SettingsCommitResult>> commit, StartupReadResult startupRead,
         SettingsLaunchAction launchAction = SettingsLaunchAction.None)
     {
-        InitializeComponent();
-        _config = config;
+        _config = config.Clone();
         _kanban = kanban;
+        _setup = setup;
+        _commit = commit;
+        _startupRead = startupRead;
         _launchAction = launchAction;
+        _updating = true;
+        InitializeComponent();
         LocalizationService.Use(_config.UiLanguage);
         LocalizationService.ApplyTo(this);
         CloseButton.ToolTip = T("ToolTip.Close");
@@ -45,13 +56,15 @@ public partial class SettingsWindow : Window
         LanguageCombo.DisplayMemberPath = nameof(LanguageOption.DisplayName);
         LanguageCombo.SelectedValue = LocalizationService.NormalizeCode(_config.UiLanguage);
         StartMinimizedCheck.IsChecked = _config.Startup.StartMinimizedToTray;
-        StartWithWindowsCheck.IsChecked = _config.Startup.StartWithWindows || StartupService.IsStartWithWindowsEnabled();
+        StartWithWindowsCheck.IsChecked = _config.Startup.StartWithWindows || (_startupRead.Available && _startupRead.Enabled);
         if (_config.Boards.Count > 0)
         {
             BoardsList.SelectedIndex = 0;
         }
 
+        _updating = false;
         ContentRendered += SettingsWindow_ContentRendered;
+        Closing += (_, args) => { if (_saving) args.Cancel = true; };
     }
 
     private BoardConfig? SelectedBoard => BoardsList.SelectedItem as BoardConfig;
@@ -64,6 +77,7 @@ public partial class SettingsWindow : Window
 
     private void LoadSelectedBoard()
     {
+        var wasUpdating = _updating;
         _updating = true;
         try
         {
@@ -99,7 +113,7 @@ public partial class SettingsWindow : Window
         }
         finally
         {
-            _updating = false;
+            _updating = wasUpdating;
         }
     }
 
@@ -130,23 +144,29 @@ public partial class SettingsWindow : Window
 
     private void SettingsWindow_ContentRendered(object? sender, EventArgs e)
     {
-        if (_launchActionStarted || _launchAction == SettingsLaunchAction.None)
+        if (_launchActionStarted)
         {
             return;
         }
 
         _launchActionStarted = true;
-        Dispatcher.BeginInvoke(new Action(() =>
+        Dispatcher.BeginInvoke(new Action(async () =>
         {
             if (!IsVisible)
             {
                 return;
             }
 
+            if (!_startupRead.Available)
+            {
+                GlassConfirmWindow.ShowNotice(this, T("Dialog.SystemSettingFailed"),
+                    T("Message.StartupReadFailed", _startupRead.Error));
+            }
+
             switch (_launchAction)
             {
                 case SettingsLaunchAction.NewBoard:
-                    StartNewBoardFlow();
+                    await StartNewBoardFlowAsync();
                     break;
                 case SettingsLaunchAction.AddExistingBoard:
                     StartAddExistingBoardFlow();
@@ -155,145 +175,84 @@ public partial class SettingsWindow : Window
         }), DispatcherPriority.ContextIdle);
     }
 
-    private void NewBoardButton_Click(object sender, RoutedEventArgs e)
+    private async void NewBoardButton_Click(object sender, RoutedEventArgs e)
     {
-        StartNewBoardFlow();
+        await StartNewBoardFlowAsync();
     }
 
-    private void StartNewBoardFlow()
+    private async Task StartNewBoardFlowAsync()
     {
-        var templateOptions = new[] { "TODO / DONE", "TODO / DOING / DONE" };
-        var templateSelect = new ColumnSelectWindow(
-            templateOptions,
-            titleKey: "Dialog.NewBoard",
-            promptKey: "Message.ChooseBoardTemplate")
-        {
-            Owner = this,
-        };
+        if (_saving) return;
+        var result = _setup.PrepareNew(_config, SelectTemplate, SelectNewBoardPath);
+        if (!AddPreparedBoard(result)) return;
+        _createdFiles.Add(result.Board!.FilePath);
+        await CommitDraftAsync();
+    }
 
-        if (templateSelect.ShowDialog() != true)
-        {
-            return;
-        }
+    private KanbanBoardTemplate? SelectTemplate()
+    {
+        var options = new[] { "TODO / DONE", "TODO / DOING / DONE" };
+        var select = new ColumnSelectWindow(options,
+            titleKey: "Dialog.NewBoard", promptKey: "Message.ChooseBoardTemplate") { Owner = this };
+        if (select.ShowDialog() != true) return null;
+        return select.SelectedColumn == options[1] ? KanbanBoardTemplate.TodoDoingDone : KanbanBoardTemplate.TodoDone;
+    }
 
-        var template = templateSelect.SelectedColumn == templateOptions[1]
-            ? KanbanBoardTemplate.TodoDoingDone
-            : KanbanBoardTemplate.TodoDone;
+    private string? SelectNewBoardPath()
+    {
         var dialog = new SaveFileDialog
         {
-            Filter = "Markdown files (*.md)|*.md",
-            DefaultExt = ".md",
-            AddExtension = true,
-            Title = T("FileDialog.CreateBoard"),
-            CheckPathExists = true,
-            OverwritePrompt = false,
-            FileName = "Kanban.md",
+            Filter = "Markdown files (*.md)|*.md", DefaultExt = ".md", AddExtension = true,
+            Title = T("FileDialog.CreateBoard"), CheckPathExists = true,
+            OverwritePrompt = false, FileName = "Kanban.md",
         };
-
-        if (dialog.ShowDialog(this) != true)
-        {
-            return;
-        }
-
-        var path = dialog.FileName;
-        if (_config.Boards.Any(x => string.Equals(x.FilePath, path, StringComparison.OrdinalIgnoreCase)))
-        {
-            GlassConfirmWindow.ShowNotice(this, T("Dialog.AlreadyAdded"), T("Message.AlreadyAdded"));
-            return;
-        }
-
-        var result = _kanban.CreateBoardFile(path, template);
-        if (!result.Success)
-        {
-            GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"), result.Error ?? T("Dialog.WriteFailed"));
-            return;
-        }
-
-        var columns = MarkdownKanbanService.GetTemplateColumns(template);
-        var board = new BoardConfig
-        {
-            DisplayName = Path.GetFileNameWithoutExtension(path),
-            VaultName = GuessVaultName(path),
-            FilePath = path,
-            DefaultColumn = columns[0],
-            Enabled = true,
-        };
-        _config.Boards.Add(board);
-        BoardsList.Items.Refresh();
-        BoardsList.SelectedItem = board;
-        ApplySelectedBoard();
-        ApplyStartupOptions();
-        StartupService.ApplyStartWithWindows(_config.Startup.StartWithWindows);
-        DialogResult = true;
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
 
-    private void AddExistingButton_Click(object sender, RoutedEventArgs e)
-    {
-        StartAddExistingBoardFlow();
-    }
+    private void AddExistingButton_Click(object sender, RoutedEventArgs e) => StartAddExistingBoardFlow();
 
     private void StartAddExistingBoardFlow()
     {
+        if (_saving) return;
+        AddPreparedBoard(_setup.PrepareExisting(_config, SelectExistingBoardPath, SelectColumn));
+    }
+
+    private string? SelectExistingBoardPath()
+    {
         var dialog = new OpenFileDialog
         {
-            Filter = "Markdown files (*.md)|*.md",
-            Title = T("FileDialog.SelectBoard"),
-            CheckFileExists = true,
-            Multiselect = false,
+            Filter = "Markdown files (*.md)|*.md", Title = T("FileDialog.SelectBoard"),
+            CheckFileExists = true, Multiselect = false,
         };
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+    }
 
-        if (dialog.ShowDialog(this) != true)
-        {
-            return;
-        }
-
-        var path = dialog.FileName;
-        if (MarkdownKanbanService.IsBlockedPath(path))
-        {
-            GlassConfirmWindow.ShowNotice(this, T("Dialog.RejectAdd"), T("Message.BlockedPath"));
-            return;
-        }
-
-        if (_config.Boards.Any(x => string.Equals(x.FilePath, path, StringComparison.OrdinalIgnoreCase)))
-        {
-            GlassConfirmWindow.ShowNotice(this, T("Dialog.AlreadyAdded"), T("Message.AlreadyAdded"));
-            return;
-        }
-
-        IReadOnlyList<string> columns;
-        try
-        {
-            columns = _kanban.GetColumnTitles(path);
-        }
-        catch (Exception ex)
-        {
-            GlassConfirmWindow.ShowNotice(this, T("Dialog.ReadFailed"), T("Message.ReadFailed", ex.Message));
-            return;
-        }
-
-        if (columns.Count == 0)
-        {
-            GlassConfirmWindow.ShowNotice(this, T("Dialog.NoColumns"), T("Message.NoColumns"));
-            return;
-        }
-
+    private string? SelectColumn(IReadOnlyList<string> columns)
+    {
         var select = new ColumnSelectWindow(columns) { Owner = this };
-        if (select.ShowDialog() != true)
-        {
-            return;
-        }
+        return select.ShowDialog() == true ? select.SelectedColumn : null;
+    }
 
-        var board = new BoardConfig
+    private bool AddPreparedBoard(BoardSetupResult result)
+    {
+        if (result.Status == BoardSetupStatus.Cancelled) return false;
+        if (result.Board is { } board)
         {
-            DisplayName = Path.GetFileNameWithoutExtension(path),
-            VaultName = GuessVaultName(path),
-            FilePath = path,
-            DefaultColumn = select.SelectedColumn,
-            Enabled = true,
+            _config.Boards.Add(board);
+            BoardsList.Items.Refresh();
+            BoardsList.SelectedItem = board;
+            return true;
+        }
+        var (title, message) = result.Status switch
+        {
+            BoardSetupStatus.AlreadyAdded => (T("Dialog.AlreadyAdded"), T("Message.AlreadyAdded")),
+            BoardSetupStatus.Blocked => (T("Dialog.RejectAdd"), T("Message.BlockedPath")),
+            BoardSetupStatus.ReadFailed => (T("Dialog.ReadFailed"), T("Message.ReadFailed", result.Error)),
+            BoardSetupStatus.NoColumns => (T("Dialog.NoColumns"), T("Message.NoColumns")),
+            _ => (T("Dialog.WriteFailed"), result.Error ?? T("Dialog.WriteFailed")),
         };
-        _config.Boards.Add(board);
-        BoardsList.Items.Refresh();
-        BoardsList.SelectedItem = board;
+        GlassConfirmWindow.ShowNotice(this, title, message);
+        return false;
     }
 
     private void RemoveButton_Click(object sender, RoutedEventArgs e)
@@ -308,22 +267,51 @@ public partial class SettingsWindow : Window
         BoardsList.SelectedIndex = Math.Min(BoardsList.Items.Count - 1, 0);
     }
 
-    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    private async void SaveButton_Click(object sender, RoutedEventArgs e) => await CommitDraftAsync();
+
+    private async Task CommitDraftAsync()
     {
+        if (_saving) return;
         ApplySelectedBoard();
         ApplyStartupOptions();
-        StartupService.ApplyStartWithWindows(_config.Startup.StartWithWindows);
+        _saving = true;
+        IsEnabled = false;
+        SettingsCommitResult result;
+        try { result = await _commit(_config); }
+        catch (Exception error) { result = new(false, SaveError: error); }
+        finally { _saving = false; IsEnabled = true; }
+
+        if (!result.Saved)
+        {
+            LogService.Error(result.SaveError ?? new IOException("Configuration save failed."),
+                "Settings configuration save failed.");
+            var message = _createdFiles.Count > 0
+                ? T("Message.CreatedBoardConfigFailed", string.Join(Environment.NewLine, _createdFiles), result.SaveError?.Message)
+                : T("Message.ConfigurationSaveFailed", result.SaveError?.Message);
+            GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"), message);
+            return;
+        }
+
+        var failures = new List<string>();
+        if (result.Startup is { Success: false } startup)
+            failures.Add(T("Message.SavedStartupFailed", startup.Error));
+        if (result.WindowError is { } windowError)
+            failures.Add(T("Message.SavedWindowsFailed", windowError.Message));
+        if (result.RefreshError is { } refreshError)
+            failures.Add(T("Message.SavedRefreshFailed", refreshError.Message));
+        if (failures.Count > 0)
+            GlassConfirmWindow.ShowNotice(this, T("Dialog.ConfigurationSaved"), string.Join(Environment.NewLine, failures));
         DialogResult = true;
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        if (!_saving) DialogResult = false;
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        if (!_saving) DialogResult = false;
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -332,21 +320,6 @@ public partial class SettingsWindow : Window
         {
             DragMove();
         }
-    }
-
-    private static string GuessVaultName(string path)
-    {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            var parent = Directory.GetParent(directory);
-            if (parent is not null && !string.IsNullOrWhiteSpace(parent.Name))
-            {
-                return parent.Name;
-            }
-        }
-
-        return Path.GetFileNameWithoutExtension(path);
     }
 
     private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

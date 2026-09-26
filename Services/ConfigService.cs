@@ -10,9 +10,6 @@ public sealed class ConfigService
     private readonly Action<string, string, bool> _publishTemporary;
     public ResolvedAppPaths Paths { get; }
 
-    // Transitional constructor until existing application callers pass explicit paths.
-    public ConfigService() : this(AppPaths.Current) { LogService.Initialize(Paths); }
-
     public ConfigService(ResolvedAppPaths paths) : this(paths, WriteTemporaryFile, PublishTemporaryFile) { }
 
     internal ConfigService(ResolvedAppPaths paths,

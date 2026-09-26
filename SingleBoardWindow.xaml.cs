@@ -15,7 +15,8 @@ public partial class SingleBoardWindow : Window
     private AppConfig _config;
     private BoardConfig _board;
     private readonly MarkdownKanbanService _kanban;
-    private readonly ConfigService _configService;
+    private readonly Action<string, WindowLayout> _saveLayout;
+    private readonly Action<string, Action<BoardConfig>> _updateBoard;
     private readonly MissingColumnRecovery _missingColumnRecovery;
     private readonly Func<Task> _showSettingsAsync;
     private readonly DispatcherTimer _timer;
@@ -39,13 +40,15 @@ public partial class SingleBoardWindow : Window
 
     public string BoardId => _board.Id;
 
-    public SingleBoardWindow(AppConfig config, BoardConfig board, MarkdownKanbanService kanban, ConfigService configService,
-        MissingColumnRecovery missingColumnRecovery, Func<Task> showSettingsAsync)
+    public SingleBoardWindow(AppConfig config, BoardConfig board, MarkdownKanbanService kanban,
+        MissingColumnRecovery missingColumnRecovery, Func<Task> showSettingsAsync,
+        Action<string, WindowLayout> saveLayout, Action<string, Action<BoardConfig>> updateBoard)
     {
         _config = config;
         _board = board;
         _kanban = kanban;
-        _configService = configService;
+        _saveLayout = saveLayout;
+        _updateBoard = updateBoard;
         _missingColumnRecovery = missingColumnRecovery;
         _showSettingsAsync = showSettingsAsync;
         LocalizationService.Use(_config.UiLanguage);
@@ -66,6 +69,7 @@ public partial class SingleBoardWindow : Window
         LocalizationService.Use(_config.UiLanguage);
         ApplyLocalization();
         RefreshHeader();
+        if (_loaded) ApplyGlassOpacity(OpacitySlider.Value);
     }
 
     public void RefreshHeader()
@@ -99,14 +103,12 @@ public partial class SingleBoardWindow : Window
 
     private void SingleBoardWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        _timer.Stop();
-        if (_closeWithoutSaving)
+        if (!_closeWithoutSaving && !SaveLayout())
         {
+            e.Cancel = true;
             return;
         }
-
-        SaveLayout();
-        _configService.Save(_config);
+        _timer.Stop();
     }
 
     public void CloseWithoutSaving()
@@ -206,7 +208,12 @@ public partial class SingleBoardWindow : Window
             SourceHash = _sourceHash,
             Error = T("Error.ColumnMissing", _board.DefaultColumn),
         };
-        await _missingColumnRecovery.RecoverAsync(group, this, action);
+        try { await _missingColumnRecovery.RecoverAsync(group, this, action); }
+        catch (Exception error)
+        {
+            LogService.Error(error, "Missing column recovery did not complete.");
+            GlassConfirmWindow.ShowNotice(this, T("Dialog.UpdateFailed"), T("Message.OperationFailed", error.Message));
+        }
     }
 
     private void DeferRefresh()
@@ -745,7 +752,6 @@ public partial class SingleBoardWindow : Window
     {
         ApplyLockState(LockMenuItem.IsChecked != true);
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private async void Timer_Tick(object? sender, EventArgs e)
@@ -769,7 +775,6 @@ public partial class SingleBoardWindow : Window
         {
             layout = WindowLayout.Default(380, 560, 0.76);
             layout.AlwaysOnTop = false;
-            _config.BoardWindows[_board.Id] = layout;
         }
 
         var workingAreas = Forms.Screen.AllScreens.Select(screen => new Rect(
@@ -780,10 +785,6 @@ public partial class SingleBoardWindow : Window
         var clamped = WindowPlacementService.ClampToVisibleWorkingArea(
             new Rect(layout.Left, layout.Top, layout.Width, layout.Height),
             workingAreas);
-        layout.Left = clamped.Left;
-        layout.Top = clamped.Top;
-        layout.Width = clamped.Width;
-        layout.Height = clamped.Height;
         Left = clamped.Left;
         Top = clamped.Top;
         Width = clamped.Width;
@@ -800,19 +801,40 @@ public partial class SingleBoardWindow : Window
         }
     }
 
-    private void SaveLayout()
+    public WindowLayout CaptureLayout() => new()
     {
-        _config.BoardWindows[_board.Id] = new WindowLayout
+        Left = Left,
+        Top = Top,
+        Width = Width,
+        Height = Height,
+        Opacity = OpacitySlider.Value,
+        AlwaysOnTop = Topmost,
+        PlacementMode = GetCurrentPlacementMode(),
+        Locked = LockMenuItem.IsChecked == true,
+    };
+
+    private bool SaveLayout()
+    {
+        try { _saveLayout(_board.Id, CaptureLayout()); return true; }
+        catch (Exception error)
         {
-            Left = Left,
-            Top = Top,
-            Width = Width,
-            Height = Height,
-            Opacity = OpacitySlider.Value,
-            AlwaysOnTop = Topmost,
-            PlacementMode = GetCurrentPlacementMode(),
-            Locked = LockMenuItem.IsChecked == true,
-        };
+            ApplyLayout();
+            ShowConfigFailure(error);
+            return false;
+        }
+    }
+
+    private void UpdateBoard(Action<BoardConfig> edit)
+    {
+        try { _updateBoard(_board.Id, edit); }
+        catch (Exception error) { ShowConfigFailure(error); }
+    }
+
+    private void ShowConfigFailure(Exception error)
+    {
+        LogService.Error(error, "Board configuration update failed.");
+        GlassConfirmWindow.ShowNotice(this, T("Dialog.WriteFailed"),
+            T("Message.ConfigurationSaveFailed", error.Message));
     }
 
     private void RootGlass_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -864,9 +886,8 @@ public partial class SingleBoardWindow : Window
         var dialog = new EditTaskWindow(T("Dialog.EditWindowTitle"), GetWidgetTitle()) { Owner = this };
         if (dialog.ShowDialog() == true)
         {
-            _board.WidgetTitle = dialog.TaskText.Trim();
-            MainTitleText.Text = GetWidgetTitle();
-            _configService.Save(_config);
+            var title = dialog.TaskText.Trim();
+            UpdateBoard(board => board.WidgetTitle = title);
         }
     }
 
@@ -881,9 +902,8 @@ public partial class SingleBoardWindow : Window
         var dialog = new EditTaskWindow(T("Dialog.EditWindowNote"), GetWidgetNote(), allowEmpty: true) { Owner = this };
         if (dialog.ShowDialog() == true)
         {
-            _board.WidgetNote = dialog.TaskText.Trim();
-            ColumnText.Text = GetWidgetNote();
-            _configService.Save(_config);
+            var note = dialog.TaskText.Trim();
+            UpdateBoard(board => board.WidgetNote = note);
         }
     }
 
@@ -897,44 +917,37 @@ public partial class SingleBoardWindow : Window
     {
         ApplyPinMode("topmost");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void NormalMenuItem_Click(object sender, RoutedEventArgs e)
     {
         ApplyPinMode("normal");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void DesktopMenuItem_Click(object sender, RoutedEventArgs e)
     {
         ApplyPinMode("desktop");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     public void SetDesktopMode()
     {
         ApplyPinMode("desktop");
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void LockMenuItem_Click(object sender, RoutedEventArgs e)
     {
         ApplyLockState(LockMenuItem.IsChecked);
         SaveLayout();
-        _configService.Save(_config);
     }
 
     private void ThemeMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { CommandParameter: string theme })
         {
-            _board.WidgetTheme = theme;
-            ApplyGlassOpacity(OpacitySlider.Value);
-            _configService.Save(_config);
+            UpdateBoard(board => board.WidgetTheme = theme);
         }
     }
 
@@ -1007,7 +1020,6 @@ public partial class SingleBoardWindow : Window
         {
             DragMove();
             SaveLayout();
-            _configService.Save(_config);
             if (!Topmost)
             {
                 WindowPlacementService.ApplyPlacementMode(this, GetCurrentPlacementMode());

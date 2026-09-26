@@ -97,7 +97,10 @@ try {
     $dictionary = '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">' + $resourceBody + '</ResourceDictionary>'
     $app.Resources = [System.Windows.Markup.XamlReader]::Parse($dictionary)
     $kanban = [DesktopOverlayBoard.Services.MarkdownKanbanService]::new()
-    $main = [DesktopOverlayBoard.MainWindow]::new()
+    # Constructing the adapter performs no registry IO. Product startup and the
+    # settings workflow are deliberately not invoked by this render check.
+    $startup = [DesktopOverlayBoard.Services.StartupService]::new($paths)
+    $main = [DesktopOverlayBoard.MainWindow]::new($config, $configService, $kanban, $startup)
     $activeConfig = $main.GetType().GetField('_config', $flags).GetValue($main)
     $activeBoard = $activeConfig.Boards[0]
     $main.Show()
@@ -132,7 +135,9 @@ try {
         return $script:settingsGate.Task
     }
     $recovery = $main.GetType().GetField('_missingColumnRecovery', $flags).GetValue($main)
-    $settingsWindow = [DesktopOverlayBoard.SingleBoardWindow]::new($callbackConfig, $callbackBoard, $kanban, $configService, $recovery, $callback)
+    $saveLayout = [Action[string, DesktopOverlayBoard.Models.WindowLayout]] { param($id, $layout) }
+    $updateBoard = [Action[string, Action[DesktopOverlayBoard.Models.BoardConfig]]] { param($id, $update) }
+    $settingsWindow = [DesktopOverlayBoard.SingleBoardWindow]::new($callbackConfig, $callbackBoard, $kanban, $recovery, $callback, $saveLayout, $updateBoard)
     [System.Threading.SynchronizationContext]::SetSynchronizationContext([System.Windows.Threading.DispatcherSynchronizationContext]::new())
     $settingsWindow.GetType().GetMethod('ConfigureMenuItem_Click', $flags).Invoke($settingsWindow, [object[]]@($settingsWindow, [System.Windows.RoutedEventArgs]::new()))
     if ($script:callbackCount -ne 1 -or $settingsWindow.FindName('TasksPanel').Children.Count -ne 0) {

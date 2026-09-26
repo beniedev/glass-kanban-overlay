@@ -20,10 +20,29 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var config = new Services.ConfigService().Load();
-        Services.StartupService.ApplyStartWithWindows(config.Startup.StartWithWindows);
+        var paths = Services.AppPaths.ResolveDefault();
+        Services.LogService.Initialize(paths);
+        var configService = new Services.ConfigService(paths);
+        Models.AppConfig config;
+        try
+        {
+            configService.Initialize();
+            config = configService.Load();
+        }
+        catch (Exception error)
+        {
+            Services.LogService.Error(error, "Configuration load failed.");
+            MessageBox.Show(Services.LocalizationService.Text("Message.ConfigurationLoadFailed", error.Message),
+                Services.LocalizationService.Text("Dialog.ReadFailed"), MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown();
+            return;
+        }
+
+        var startup = new Services.StartupService(paths);
+        var startupResult = startup.ApplyStartWithWindows(config.Startup.StartWithWindows);
         var launchedFromStartup = e.Args.Any(arg => string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase));
-        var window = new MainWindow();
+        var window = new MainWindow(config, configService, new Services.MarkdownKanbanService(), startup);
+        window.SetStartupResult(startupResult);
         _mainWindow = window;
         window.SetLaunchedFromStartup(launchedFromStartup);
         if (config.Startup.StartMinimizedToTray)

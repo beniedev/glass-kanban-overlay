@@ -175,3 +175,9 @@ Validation:
 
 - Configuration services capture explicit paths, share a pure normalizer, and publish configuration via a temporary file and atomic replacement.
 - Retained transitional default-path and parameterless configuration entry points for existing window/application callers. Tests use fixed synthetic paths and explicit log initialization.
+
+## Modularization: Settings and window configuration ownership
+
+- Application composition initializes paths and loads configuration once. MainWindow owns saved configuration publication and passes layout/settings/board callbacks to split windows.
+- Settings and board setup workflows distinguish persistence, window publication, startup-setting, and refresh failures; a created Markdown file remains available when configuration saving fails.
+- Removed the transitional configuration/path entry points after all production callers received explicit dependencies.

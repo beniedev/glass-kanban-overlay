@@ -10,6 +10,9 @@ internal static class TestRunner
         new("recovery", MissingColumnRecoveryTests.RunAsync),
         new("widget-ui", _ => RunSync(WidgetUiTests.Run)),
         new("config", root => RunSync(() => ConfigTests.Run(root))),
+        new("settings-workflow", SettingsWorkflowTests.RunAsync),
+        new("board-setup", root => RunSync(() => BoardSetupTests.Run(root))),
+        new("startup", root => RunSync(() => StartupServiceTests.Run(root))),
         new("window-state", root => RunSync(() => WindowStateTests.Run(root))),
         new("runtime", root => RunSync(() => RuntimeContractTests.Run(root))),
     ];

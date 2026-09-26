@@ -19,14 +19,6 @@ public sealed record ResolvedAppPaths
 
 public static class AppPaths
 {
-    // Transitional compatibility until application composition passes explicit paths to every consumer.
-    private static readonly Lazy<ResolvedAppPaths> DefaultPaths = new(ResolveDefault);
-    public static ResolvedAppPaths Current => DefaultPaths.Value;
-    public static string RootDirectory => Current.RootDirectory;
-    public static string DataDirectory => Current.DataDirectory;
-    public static string LogDirectory => Current.LogDirectory;
-    public static string ConfigPath => Current.ConfigPath;
-
     public static ResolvedAppPaths FromRoot(string rootDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
